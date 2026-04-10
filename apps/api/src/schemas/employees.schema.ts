@@ -1,0 +1,43 @@
+import { z } from 'zod';
+
+export const createEmployeeSchema = z.object({
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().min(1).max(100),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  nationality: z.string().optional().nullable(),
+  nricOrFin: z.string().optional().nullable(),
+  dateOfBirth: z.string().optional().nullable(),
+  employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'FOREIGN_WORKER']).optional().default('FULL_TIME'),
+  jobTitle: z.string().optional().nullable(),
+  department: z.string().optional().nullable(),
+  skills: z.array(z.string()).optional().default([]),
+  dailyRate: z.number({ required_error: 'Daily rate is required' }).positive(),
+  hourlyRate: z.number().positive().optional().nullable(),
+  overtimeRate: z.number().positive().optional().nullable(),
+  allowances: z.number().min(0).optional().default(0),
+  cpfApplicable: z.boolean().optional().default(false),
+  bankName: z.string().optional().nullable(),
+  bankAccountNo: z.string().optional().nullable(),
+  joinDate: z.string({ required_error: 'Join date is required' }),
+  emergencyContact: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  photoUrl: z.string().url().optional().nullable(),
+  userId: z.string().optional().nullable(),
+});
+
+export const updateEmployeeSchema = createEmployeeSchema.partial();
+
+export const createAttendanceSchema = z.object({
+  employeeId: z.string().min(1),
+  projectId: z.string().optional().nullable(),
+  date: z.string({ required_error: 'Date is required' }),
+  status: z.enum(['PRESENT', 'ABSENT', 'HALF_DAY', 'ON_LEAVE', 'PUBLIC_HOLIDAY', 'REST_DAY']).optional().default('PRESENT'),
+  hoursWorked: z.number().min(0).max(24).optional().nullable(),
+  overtimeHours: z.number().min(0).max(24).optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+export const bulkAttendanceSchema = z.object({
+  records: z.array(createAttendanceSchema).min(1),
+});

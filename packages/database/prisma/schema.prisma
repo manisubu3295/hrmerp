@@ -1,0 +1,844 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// MULTI-TENANCY
+// ============================================================
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  logoUrl     String?
+  address     String?
+  phone       String?
+  email       String?
+  uen         String?  // Singapore UEN
+  gstNo       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users        User[]
+
+  @@map("organizations")
+}
+
+// ============================================================
+// AUTH & USERS
+// ============================================================
+
+model User {
+  id             String        @id @default(cuid())
+  email          String        @unique
+  passwordHash   String
+  role           UserRole      @default(EMPLOYEE)
+  isActive       Boolean       @default(true)
+  lastLoginAt    DateTime?
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  employee     Employee?
+  notifications Notification[]
+  auditLogs    AuditLog[]
+  passwordResetTokens PasswordResetToken[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  SUPERVISOR
+  EMPLOYEE
+}
+
+// ============================================================
+// MODULE 1: EMPLOYEE & PAYROLL
+// ============================================================
+
+model Employee {
+  id               String         @id @default(cuid())
+  employeeCode     String         @unique
+  userId           String?        @unique
+  user             User?          @relation(fields: [userId], references: [id])
+  firstName        String
+  lastName         String
+  email            String?        @unique
+  phone            String?
+  nationality      String?
+  nricOrFin        String?        @unique
+  dateOfBirth      DateTime?
+  employmentType   EmploymentType @default(FULL_TIME)
+  jobTitle         String?
+  department       String?
+  skills           String[]
+  dailyRate        Decimal        @db.Decimal(10, 2)
+  hourlyRate       Decimal?       @db.Decimal(10, 2)
+  overtimeRate     Decimal?       @db.Decimal(10, 2)
+  allowances       Decimal        @default(0) @db.Decimal(10, 2)
+  cpfApplicable    Boolean        @default(false)
+  bankName         String?
+  bankAccountNo    String?
+  joinDate         DateTime
+  resignDate       DateTime?
+  isActive         Boolean        @default(true)
+  emergencyContact String?
+  address          String?
+  photoUrl         String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  workPass         WorkPass[]
+  attendances      Attendance[]
+  projectAssignments ProjectEmployee[]
+  expenseSubmissions Expense[]
+  equipmentIssues  EquipmentIssue[]
+  certifications   EmployeeCertification[]
+  leaveRequests    LeaveRequest[]
+  leaveBalances    LeaveBalance[]
+  approvedLeaves   LeaveRequest[] @relation("LeaveApprover")
+
+  @@map("employees")
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  FOREIGN_WORKER
+}
+
+model EmployeeCertification {
+  id           String    @id @default(cuid())
+  employeeId   String
+  employee     Employee  @relation(fields: [employeeId], references: [id])
+  name         String
+  issuedBy     String?
+  issuedDate   DateTime?
+  expiryDate   DateTime?
+  documentUrl  String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("employee_certifications")
+}
+
+model Attendance {
+  id           String           @id @default(cuid())
+  employeeId   String
+  employee     Employee         @relation(fields: [employeeId], references: [id])
+  projectId    String?
+  project      Project?         @relation(fields: [projectId], references: [id])
+  date         DateTime         @db.Date
+  status       AttendanceStatus @default(PRESENT)
+  hoursWorked  Decimal?         @db.Decimal(5, 2)
+  overtimeHours Decimal?        @db.Decimal(5, 2)
+  dailyWage    Decimal          @default(0) @db.Decimal(10, 2)
+  overtimePay  Decimal          @default(0) @db.Decimal(10, 2)
+  notes        String?
+  approvalStatus TimesheetApprovalStatus @default(PENDING)
+  approvedById String?
+  approvedAt   DateTime?
+  rejectionReason String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([employeeId, date, projectId])
+  @@map("attendances")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  OVERTIME
+  LEAVE
+}
+
+enum TimesheetApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model PayrollRecord {
+  id             String   @id @default(cuid())
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id])
+  employeeId     String
+  month          Int
+  year           Int
+  daysWorked     Int      @default(0)
+  overtimeDays   Decimal  @default(0) @db.Decimal(5, 2)
+  basicPay       Decimal  @default(0) @db.Decimal(10, 2)
+  overtimePay    Decimal  @default(0) @db.Decimal(10, 2)
+  allowances     Decimal  @default(0) @db.Decimal(10, 2)
+  cpfEmployee    Decimal  @default(0) @db.Decimal(10, 2)
+  cpfEmployer    Decimal  @default(0) @db.Decimal(10, 2)
+  totalPayable   Decimal  @default(0) @db.Decimal(10, 2)
+  totalCostToCompany Decimal @default(0) @db.Decimal(10, 2)
+  isPaid         Boolean  @default(false)
+  paidAt         DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([projectId, employeeId, month, year])
+  @@map("payroll_records")
+}
+
+// ============================================================
+// MODULE 1b: LEAVE MANAGEMENT
+// ============================================================
+
+model LeavePolicy {
+  id              String    @id @default(cuid())
+  name            String
+  leaveType       LeaveType
+  daysPerYear     Int
+  carryForwardMax Int       @default(0)
+  isPaidLeave     Boolean   @default(true)
+  applicableTo    String?   // e.g. "ALL", "SG_CITIZEN", "PR", "FOREIGNER"
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([leaveType])
+  @@map("leave_policies")
+}
+
+model LeaveBalance {
+  id          String    @id @default(cuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  year        Int
+  leaveType   LeaveType
+  entitled    Int       @default(0)
+  used        Int       @default(0)
+  pending     Int       @default(0)
+  carriedOver Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([employeeId, year, leaveType])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id               String      @id @default(cuid())
+  leaveCode        String      @unique
+  employeeId       String
+  employee         Employee    @relation(fields: [employeeId], references: [id])
+  leaveType        LeaveType
+  startDate        DateTime    @db.Date
+  endDate          DateTime    @db.Date
+  totalDays        Int
+  halfDay          Boolean     @default(false)
+  reason           String?
+  status           LeaveStatus @default(PENDING)
+  approverId       String?
+  approver         Employee?   @relation("LeaveApprover", fields: [approverId], references: [id])
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  rejectionReason  String?
+  cancelledAt      DateTime?
+  attachmentUrl    String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@map("leave_requests")
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  UNPAID
+  MATERNITY
+  PATERNITY
+  EMERGENCY
+  COMPASSIONATE
+  PUBLIC_HOLIDAY
+  OFF_IN_LIEU
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  WITHDRAWN
+}
+
+// ============================================================
+// MODULE 2: PROJECT MANAGEMENT & COSTING
+// ============================================================
+
+model Client {
+  id           String    @id @default(cuid())
+  code         String    @unique
+  name         String
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  address      String?
+  uen          String?
+  gstRegistered Boolean  @default(false)
+  creditTermDays Int     @default(30)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  projects     Project[]
+  quotations   Quotation[]
+  invoices     Invoice[]
+
+  @@map("clients")
+}
+
+model Project {
+  id               String        @id @default(cuid())
+  projectCode      String        @unique
+  name             String
+  description      String?
+  clientId         String
+  client           Client        @relation(fields: [clientId], references: [id])
+  managerId        String?
+  location         String?
+  startDate        DateTime
+  endDate          DateTime?
+  actualEndDate    DateTime?
+  quotedBudget     Decimal       @default(0) @db.Decimal(12, 2)
+  targetMargin     Decimal       @default(0.15) @db.Decimal(5, 4)
+  overheadPercent  Decimal       @default(0) @db.Decimal(5, 4)
+  status           ProjectStatus @default(DRAFT)
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  quotation        Quotation?
+  employees        ProjectEmployee[]
+  expenses         Expense[]
+  equipmentIssues  EquipmentIssue[]
+  invoices         Invoice[]
+  attendances      Attendance[]
+  payrollRecords   PayrollRecord[]
+  notifications    Notification[]
+
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+model ProjectEmployee {
+  id          String    @id @default(cuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id])
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  role        String?
+  dailyRate   Decimal   @db.Decimal(10, 2)
+  assignedAt  DateTime  @default(now())
+  removedAt   DateTime?
+  isActive    Boolean   @default(true)
+
+  @@unique([projectId, employeeId])
+  @@map("project_employees")
+}
+
+// ============================================================
+// MODULE 3: EXPENSE TRACKING
+// ============================================================
+
+model Expense {
+  id           String          @id @default(cuid())
+  expenseCode  String          @unique
+  projectId    String
+  project      Project         @relation(fields: [projectId], references: [id])
+  submittedById String
+  submittedBy  Employee        @relation(fields: [submittedById], references: [id])
+  category     ExpenseCategory
+  amount       Decimal         @db.Decimal(10, 2)
+  description  String
+  date         DateTime        @db.Date
+  receiptUrl   String?
+  status       ExpenseStatus   @default(PENDING)
+  approvedById String?
+  approvedAt   DateTime?
+  rejectionReason String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@map("expenses")
+}
+
+enum ExpenseCategory {
+  TRANSPORT
+  MEALS
+  MATERIALS
+  SUB_CONTRACTOR
+  PERMITS
+  ACCOMMODATION
+  MISCELLANEOUS
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ============================================================
+// MODULE 4: EQUIPMENT & INVENTORY
+// ============================================================
+
+model Supplier {
+  id             String   @id @default(cuid())
+  supplierCode   String   @unique
+  name           String
+  contactPerson  String?
+  email          String?
+  phone          String?
+  address        String?
+  city           String?
+  country        String?
+  taxId          String?
+  notes          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  equipmentItems EquipmentItem[]
+
+  @@map("suppliers")
+}
+
+model EquipmentCategory {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  description String?
+  createdAt   DateTime    @default(now())
+
+  items       EquipmentItem[]
+
+  @@map("equipment_categories")
+}
+
+model EquipmentItem {
+  id                String            @id @default(cuid())
+  itemCode          String            @unique
+  name              String
+  description       String?
+  categoryId        String
+  category          EquipmentCategory @relation(fields: [categoryId], references: [id])
+  unit              String            @default("unit")
+  unitCost          Decimal           @db.Decimal(10, 2)
+  totalQuantity     Int               @default(0)
+  availableQuantity Int               @default(0)
+  minStockLevel     Int               @default(5)
+  depreciationRate  Decimal           @default(0) @db.Decimal(5, 4)
+  usefulLifeDays    Int?
+  supplierName      String?
+  supplierContact   String?
+  supplierId        String?
+  supplier          Supplier?         @relation(fields: [supplierId], references: [id])
+  isActive          Boolean           @default(true)
+  nextMaintenanceAt DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  purchases        EquipmentPurchase[]
+  issues           EquipmentIssue[]
+
+  @@map("equipment_items")
+}
+
+model EquipmentPurchase {
+  id           String        @id @default(cuid())
+  itemId       String
+  item         EquipmentItem @relation(fields: [itemId], references: [id])
+  quantity     Int
+  unitCost     Decimal       @db.Decimal(10, 2)
+  totalCost    Decimal       @db.Decimal(10, 2)
+  purchaseDate DateTime      @db.Date
+  supplierName String?
+  invoiceRef   String?
+  notes        String?
+  createdAt    DateTime      @default(now())
+
+  @@map("equipment_purchases")
+}
+
+model EquipmentIssue {
+  id             String                   @id @default(cuid())
+  itemId         String
+  item           EquipmentItem            @relation(fields: [itemId], references: [id])
+  projectId      String
+  project        Project                  @relation(fields: [projectId], references: [id])
+  employeeId     String
+  employee       Employee                 @relation(fields: [employeeId], references: [id])
+  quantity       Int
+  unitCost       Decimal                  @db.Decimal(10, 2)
+  totalCost      Decimal                  @db.Decimal(10, 2)
+  issuedAt       DateTime                 @default(now())
+  returnedAt     DateTime?
+  returnedQty    Int                      @default(0)
+  type           InventoryTransactionType @default(ISSUE)
+  condition      String?
+  lostDamagedQty Int                      @default(0)
+  lostDamagedCost Decimal                 @default(0) @db.Decimal(10, 2)
+  notes          String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@map("equipment_issues")
+}
+
+enum InventoryTransactionType {
+  PURCHASE
+  ISSUE
+  RETURN
+  LOSS
+  DAMAGE
+  ADJUSTMENT
+}
+
+// ============================================================
+// MODULE 5: QUOTATION BUILDER
+// ============================================================
+
+model Quotation {
+  id              String          @id @default(cuid())
+  quotationCode   String          @unique
+  clientId        String
+  client          Client          @relation(fields: [clientId], references: [id])
+  projectId       String?         @unique
+  project         Project?        @relation(fields: [projectId], references: [id])
+  title           String
+  description     String?
+  validUntil      DateTime
+  subtotal        Decimal         @default(0) @db.Decimal(12, 2)
+  discountAmount  Decimal         @default(0) @db.Decimal(12, 2)
+  taxRate         Decimal         @default(0.09) @db.Decimal(5, 4)
+  taxAmount       Decimal         @default(0) @db.Decimal(12, 2)
+  totalAmount     Decimal         @default(0) @db.Decimal(12, 2)
+  status          QuotationStatus @default(DRAFT)
+  sentAt          DateTime?
+  viewedAt        DateTime?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  rejectionReason String?
+  notes           String?
+  termsAndCond    String?
+  pdfUrl          String?
+  portalToken     String?         @unique
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  lineItems       QuotationLineItem[]
+
+  @@map("quotations")
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  VIEWED
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+model QuotationLineItem {
+  id            String    @id @default(cuid())
+  quotationId   String
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  description   String
+  workerType    String?
+  quantity      Decimal   @db.Decimal(10, 2)
+  unit          String    @default("days")
+  unitRate      Decimal   @db.Decimal(10, 2)
+  amount        Decimal   @db.Decimal(12, 2)
+  sortOrder     Int       @default(0)
+  createdAt     DateTime  @default(now())
+
+  @@map("quotation_line_items")
+}
+
+// ============================================================
+// MODULE 6: REVENUE & BILLING
+// ============================================================
+
+model Invoice {
+  id              String        @id @default(cuid())
+  invoiceCode     String        @unique
+  clientId        String
+  client          Client        @relation(fields: [clientId], references: [id])
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id])
+  issueDate       DateTime      @db.Date
+  dueDate         DateTime      @db.Date
+  subtotal        Decimal       @default(0) @db.Decimal(12, 2)
+  taxRate         Decimal       @default(0.09) @db.Decimal(5, 4)
+  taxAmount       Decimal       @default(0) @db.Decimal(12, 2)
+  totalAmount     Decimal       @default(0) @db.Decimal(12, 2)
+  paidAmount      Decimal       @default(0) @db.Decimal(12, 2)
+  outstandingAmount Decimal     @default(0) @db.Decimal(12, 2)
+  status          InvoiceStatus @default(DRAFT)
+  reminderCount   Int           @default(0)
+  lastReminderAt  DateTime?
+  notes           String?
+  pdfUrl          String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  lineItems       InvoiceLineItem[]
+  payments        Payment[]
+
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model InvoiceLineItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Decimal  @db.Decimal(10, 2)
+  unit        String   @default("days")
+  unitRate    Decimal  @db.Decimal(10, 2)
+  amount      Decimal  @db.Decimal(12, 2)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@map("invoice_line_items")
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id])
+  amount        Decimal  @db.Decimal(10, 2)
+  paymentDate   DateTime @db.Date
+  paymentMethod String?
+  reference     String?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@map("payments")
+}
+
+// ============================================================
+// MODULE 9: WORK PASS & COMPLIANCE (MOM)
+// ============================================================
+
+model WorkPass {
+  id             String         @id @default(cuid())
+  employeeId     String
+  employee       Employee       @relation(fields: [employeeId], references: [id])
+  passType       WorkPassType
+  passNumber     String         @unique
+  issuedBy       String         @default("MOM")
+  issueDate      DateTime       @db.Date
+  expiryDate     DateTime       @db.Date
+  status         WorkPassStatus @default(ACTIVE)
+  documentUrl    String?
+  renewalHistory WorkPassRenewal[]
+  cancelledAt    DateTime?
+  cancelReason   String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@map("work_passes")
+}
+
+enum WorkPassType {
+  WORK_PERMIT
+  S_PASS
+  EMPLOYMENT_PASS
+  TRAINING_WORK_PERMIT
+  LETTER_OF_CONSENT
+}
+
+enum WorkPassStatus {
+  ACTIVE
+  EXPIRING_SOON
+  EXPIRED
+  RENEWED
+  CANCELLED
+}
+
+model WorkPassRenewal {
+  id            String    @id @default(cuid())
+  workPassId    String
+  workPass      WorkPass  @relation(fields: [workPassId], references: [id])
+  oldPassNumber String
+  oldExpiryDate DateTime
+  newPassNumber String
+  newExpiryDate DateTime
+  renewedAt     DateTime  @default(now())
+  documentUrl   String?
+  notes         String?
+
+  @@map("work_pass_renewals")
+}
+
+// ============================================================
+// MODULE 11: NOTIFICATIONS & REMINDERS
+// ============================================================
+
+model Notification {
+  id          String               @id @default(cuid())
+  userId      String?
+  user        User?                @relation(fields: [userId], references: [id])
+  projectId   String?
+  project     Project?             @relation(fields: [projectId], references: [id])
+  type        NotificationType
+  title       String
+  message     String
+  priority    NotificationPriority @default(MEDIUM)
+  channel     NotificationChannel  @default(IN_APP)
+  isRead      Boolean              @default(false)
+  isResolved  Boolean              @default(false)
+  resolvedAt  DateTime?
+  resolvedNote String?
+  metadata    Json?
+  sentAt      DateTime?
+  createdAt   DateTime             @default(now())
+
+  @@map("notifications")
+}
+
+enum NotificationType {
+  WORK_PASS_EXPIRING_30
+  WORK_PASS_EXPIRING_15
+  WORK_PASS_EXPIRING_7
+  WORK_PASS_EXPIRED
+  WORK_PASS_RENEWED
+  INVOICE_OVERDUE
+  PROJECT_BUDGET_80
+  PAYMENT_RECEIVED
+  PROFIT_BELOW_TARGET
+  PROJECT_END_APPROACHING
+  EQUIPMENT_MAINTENANCE_DUE
+  INVENTORY_LOW_STOCK
+  PROJECT_COMPLETED
+  EMPLOYEE_CERT_EXPIRING
+  PAYROLL_REMINDER
+  EMPLOYEE_SAFETY_TRAINING_DUE
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+  CRITICAL
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WHATSAPP
+}
+
+model NotificationPreference {
+  id          String              @id @default(cuid())
+  userId      String              @unique
+  type        NotificationType
+  inApp       Boolean             @default(true)
+  email       Boolean             @default(true)
+  whatsapp    Boolean             @default(false)
+  daysBefore  Int?
+  isEnabled   Boolean             @default(true)
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([userId, type])
+  @@map("notification_preferences")
+}
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  entity     String
+  entityId   String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+// ============================================================
+// PASSWORD RESET
+// ============================================================
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@map("password_reset_tokens")
+}
+
+// ============================================================
+// MODULE 12: CALENDAR & HOLIDAYS
+// ============================================================
+
+model Holiday {
+  id          String      @id @default(cuid())
+  name        String
+  date        DateTime    @db.Date
+  type        HolidayType @default(PUBLIC_HOLIDAY)
+  description String?
+  isRecurring Boolean     @default(false)
+  country     String      @default("SG")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([date, name])
+  @@map("holidays")
+}
+
+enum HolidayType {
+  PUBLIC_HOLIDAY
+  COMPANY_HOLIDAY
+  HALF_DAY
+  WORKING_SATURDAY
+}

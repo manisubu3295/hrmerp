@@ -1,0 +1,120 @@
+export declare enum UserRole {
+    SUPER_ADMIN = "SUPER_ADMIN",
+    ADMIN = "ADMIN",
+    MANAGER = "MANAGER",
+    SUPERVISOR = "SUPERVISOR",
+    EMPLOYEE = "EMPLOYEE"
+}
+export declare enum ProjectStatus {
+    DRAFT = "DRAFT",
+    ACTIVE = "ACTIVE",
+    ON_HOLD = "ON_HOLD",
+    COMPLETED = "COMPLETED",
+    CANCELLED = "CANCELLED"
+}
+export declare enum QuotationStatus {
+    DRAFT = "DRAFT",
+    SENT = "SENT",
+    VIEWED = "VIEWED",
+    APPROVED = "APPROVED",
+    REJECTED = "REJECTED",
+    EXPIRED = "EXPIRED"
+}
+export declare enum InvoiceStatus {
+    DRAFT = "DRAFT",
+    SENT = "SENT",
+    UNPAID = "UNPAID",
+    PARTIALLY_PAID = "PARTIALLY_PAID",
+    PAID = "PAID",
+    OVERDUE = "OVERDUE",
+    CANCELLED = "CANCELLED"
+}
+export declare enum ExpenseCategory {
+    TRANSPORT = "TRANSPORT",
+    MEALS = "MEALS",
+    MATERIALS = "MATERIALS",
+    SUB_CONTRACTOR = "SUB_CONTRACTOR",
+    PERMITS = "PERMITS",
+    ACCOMMODATION = "ACCOMMODATION",
+    MISCELLANEOUS = "MISCELLANEOUS"
+}
+export declare enum ExpenseStatus {
+    PENDING = "PENDING",
+    APPROVED = "APPROVED",
+    REJECTED = "REJECTED"
+}
+export declare enum WorkPassType {
+    WORK_PERMIT = "WORK_PERMIT",
+    S_PASS = "S_PASS",
+    EMPLOYMENT_PASS = "EMPLOYMENT_PASS",
+    TRAINING_WORK_PERMIT = "TRAINING_WORK_PERMIT",
+    LETTER_OF_CONSENT = "LETTER_OF_CONSENT"
+}
+export declare enum WorkPassStatus {
+    ACTIVE = "ACTIVE",
+    EXPIRING_SOON = "EXPIRING_SOON",
+    EXPIRED = "EXPIRED",
+    RENEWED = "RENEWED",
+    CANCELLED = "CANCELLED"
+}
+export declare enum EquipmentCategory {
+    SAFETY_EQUIPMENT = "SAFETY_EQUIPMENT",
+    TOOLS = "TOOLS",
+    CONSUMABLES = "CONSUMABLES",
+    MACHINERY = "MACHINERY",
+    VEHICLES = "VEHICLES",
+    IT_EQUIPMENT = "IT_EQUIPMENT",
+    OTHER = "OTHER"
+}
+export declare enum InventoryTransactionType {
+    PURCHASE = "PURCHASE",
+    ISSUE = "ISSUE",
+    RETURN = "RETURN",
+    LOSS = "LOSS",
+    DAMAGE = "DAMAGE",
+    ADJUSTMENT = "ADJUSTMENT"
+}
+export declare enum NotificationChannel {
+    IN_APP = "IN_APP",
+    EMAIL = "EMAIL",
+    WHATSAPP = "WHATSAPP"
+}
+export declare enum NotificationPriority {
+    LOW = "LOW",
+    MEDIUM = "MEDIUM",
+    HIGH = "HIGH",
+    URGENT = "URGENT",
+    CRITICAL = "CRITICAL"
+}
+export declare enum NotificationType {
+    WORK_PASS_EXPIRING_30 = "WORK_PASS_EXPIRING_30",
+    WORK_PASS_EXPIRING_15 = "WORK_PASS_EXPIRING_15",
+    WORK_PASS_EXPIRING_7 = "WORK_PASS_EXPIRING_7",
+    WORK_PASS_EXPIRED = "WORK_PASS_EXPIRED",
+    WORK_PASS_RENEWED = "WORK_PASS_RENEWED",
+    INVOICE_OVERDUE = "INVOICE_OVERDUE",
+    PROJECT_BUDGET_80 = "PROJECT_BUDGET_80",
+    PAYMENT_RECEIVED = "PAYMENT_RECEIVED",
+    PROFIT_BELOW_TARGET = "PROFIT_BELOW_TARGET",
+    PROJECT_END_APPROACHING = "PROJECT_END_APPROACHING",
+    EQUIPMENT_MAINTENANCE_DUE = "EQUIPMENT_MAINTENANCE_DUE",
+    INVENTORY_LOW_STOCK = "INVENTORY_LOW_STOCK",
+    PROJECT_COMPLETED = "PROJECT_COMPLETED",
+    EMPLOYEE_CERT_EXPIRING = "EMPLOYEE_CERT_EXPIRING",
+    PAYROLL_REMINDER = "PAYROLL_REMINDER",
+    EMPLOYEE_SAFETY_TRAINING_DUE = "EMPLOYEE_SAFETY_TRAINING_DUE"
+}
+export declare enum EmploymentType {
+    FULL_TIME = "FULL_TIME",
+    PART_TIME = "PART_TIME",
+    CONTRACT = "CONTRACT",
+    FOREIGN_WORKER = "FOREIGN_WORKER"
+}
+export declare enum AttendanceStatus {
+    PRESENT = "PRESENT",
+    ABSENT = "ABSENT",
+    HALF_DAY = "HALF_DAY",
+    OVERTIME = "OVERTIME",
+    LEAVE = "LEAVE"
+}
+//# sourceMappingURL=enums.d.ts.map
