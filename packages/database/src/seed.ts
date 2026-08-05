@@ -180,6 +180,14 @@ async function main() {
     },
   });
 
+  // Default warehouse — equipment stock is tracked per-warehouse, not as a
+  // flat count on the item.
+  const mainWarehouse = await prisma.warehouse.upsert({
+    where: { organizationId_code: { organizationId: org.id, code: 'MAIN' } },
+    update: {},
+    create: { organizationId: org.id, code: 'MAIN', name: 'Main Warehouse', isDefault: true },
+  });
+
   // Equipment categories
   const safetyCategory = await prisma.equipmentCategory.upsert({
     where: { organizationId_name: { organizationId: org.id, name: 'Safety Equipment' } },
@@ -257,8 +265,9 @@ async function main() {
     },
   });
 
-  // Sample equipment items
-  await prisma.equipmentItem.upsert({
+  // Sample equipment items — stock lives on WarehouseStock (below), not on
+  // the item itself; trackingMode defaults to BULK for all three.
+  const safetyShoes = await prisma.equipmentItem.upsert({
     where: { organizationId_itemCode: { organizationId: org.id, itemCode: 'ITM-0001' } },
     update: {},
     create: {
@@ -268,14 +277,12 @@ async function main() {
       categoryId: safetyCategory.id,
       unit: 'pair',
       unitCost: 85,
-      totalQuantity: 20,
-      availableQuantity: 14,
       minStockLevel: 5,
       depreciationRate: 0,
     },
   });
 
-  await prisma.equipmentItem.upsert({
+  const hardHat = await prisma.equipmentItem.upsert({
     where: { organizationId_itemCode: { organizationId: org.id, itemCode: 'ITM-0002' } },
     update: {},
     create: {
@@ -285,14 +292,12 @@ async function main() {
       categoryId: safetyCategory.id,
       unit: 'unit',
       unitCost: 25,
-      totalQuantity: 30,
-      availableQuantity: 22,
       minStockLevel: 10,
       depreciationRate: 0,
     },
   });
 
-  await prisma.equipmentItem.upsert({
+  const cableTester = await prisma.equipmentItem.upsert({
     where: { organizationId_itemCode: { organizationId: org.id, itemCode: 'ITM-0003' } },
     update: {},
     create: {
@@ -302,13 +307,19 @@ async function main() {
       categoryId: toolsCategory.id,
       unit: 'unit',
       unitCost: 350,
-      totalQuantity: 5,
-      availableQuantity: 3,
       minStockLevel: 2,
       depreciationRate: 0.2,
       usefulLifeDays: 1825,
     },
   });
+
+  for (const [item, quantityOnHand] of [[safetyShoes, 14], [hardHat, 22], [cableTester, 3]] as const) {
+    await prisma.warehouseStock.upsert({
+      where: { itemId_warehouseId: { itemId: item.id, warehouseId: mainWarehouse.id } },
+      update: {},
+      create: { organizationId: org.id, itemId: item.id, warehouseId: mainWarehouse.id, quantityOnHand },
+    });
+  }
 
   // Employee user accounts linked to emp1 and emp2
   await prisma.user.upsert({
