@@ -286,6 +286,7 @@ export default function TimesheetPage() {
             <Typography color="text.secondary">No entries for this period</Typography>
           </Box>
         ) : (
+          <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead>
               <TableRow sx={{ backgroundColor: "#f8fafc" }}>
@@ -321,6 +322,7 @@ export default function TimesheetPage() {
               ))}
             </TableBody>
           </Table>
+          </Box>
         )}
       </Card>
 

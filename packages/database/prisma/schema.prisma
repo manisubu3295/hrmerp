@@ -1,3 +1,8 @@
+// No tracked migrations directory exists — schema changes are applied via
+// `prisma db push`. Deploy/CI scripts that run it with `--accept-data-loss`
+// apply destructive changes (dropped columns, etc.) with no further prompt —
+// read the diff before running it against a real database.
+
 generator client {
   provider = "prisma-client-js"
 }

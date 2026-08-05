@@ -197,7 +197,7 @@ export default function DashboardPage() {
         </Box>
 
         {/* Alert pills */}
-        {(kpis.overdueInvoices > 0 || kpis.expiringWorkPasses > 0 || kpis.lowStockAlerts > 0) && (
+        {(kpis.overdueInvoices > 0 || kpis.expiringPasses > 0 || kpis.lowStockItems > 0) && (
           <Box sx={{ display: "flex", gap: 1.5, mt: 2.5, flexWrap: "wrap" }}>
             {kpis.overdueInvoices > 0 && (
               <Box onClick={() => navigate("/billing")} sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.75, borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.18)", border: "1px solid rgba(239,68,68,0.3)", cursor: "pointer", "&:hover": { backgroundColor: "rgba(239,68,68,0.28)" } }}>
@@ -206,17 +206,17 @@ export default function DashboardPage() {
                 <ArrowForward sx={{ fontSize: 11, color: "#fca5a5" }} />
               </Box>
             )}
-            {kpis.expiringWorkPasses > 0 && (
+            {kpis.expiringPasses > 0 && (
               <Box onClick={() => navigate("/compliance")} sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.75, borderRadius: "8px", backgroundColor: "rgba(251,191,36,0.18)", border: "1px solid rgba(251,191,36,0.3)", cursor: "pointer", "&:hover": { backgroundColor: "rgba(251,191,36,0.28)" } }}>
                 <Box sx={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#fcd34d" }} />
-                <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#fde68a" }}>{kpis.expiringWorkPasses} work pass{kpis.expiringWorkPasses > 1 ? "es" : ""} expiring</Typography>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#fde68a" }}>{kpis.expiringPasses} work pass{kpis.expiringPasses > 1 ? "es" : ""} expiring</Typography>
                 <ArrowForward sx={{ fontSize: 11, color: "#fde68a" }} />
               </Box>
             )}
-            {kpis.lowStockAlerts > 0 && (
+            {kpis.lowStockItems > 0 && (
               <Box onClick={() => navigate("/equipment")} sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.75, borderRadius: "8px", backgroundColor: "rgba(251,191,36,0.18)", border: "1px solid rgba(251,191,36,0.3)", cursor: "pointer", "&:hover": { backgroundColor: "rgba(251,191,36,0.28)" } }}>
                 <Box sx={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#fcd34d" }} />
-                <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#fde68a" }}>{kpis.lowStockAlerts} low stock alert{kpis.lowStockAlerts > 1 ? "s" : ""}</Typography>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#fde68a" }}>{kpis.lowStockItems} low stock alert{kpis.lowStockItems > 1 ? "s" : ""}</Typography>
                 <ArrowForward sx={{ fontSize: 11, color: "#fde68a" }} />
               </Box>
             )}

@@ -219,6 +219,7 @@ export default function RecruitmentPage() {
         {tab === 0 && (
           <CardContent sx={{ p: "0 !important" }}>
             {reqLoading ? <Box sx={{ p: 4, textAlign: "center" }}><CircularProgress size={28} /></Box> : (
+              <Box sx={{ overflowX: "auto" }}>
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ "& th": { fontWeight: 700, color: "#64748b", fontSize: "0.75rem", textTransform: "uppercase", background: "#f8fafc" } }}>
@@ -240,6 +241,7 @@ export default function RecruitmentPage() {
                   {requisitions.length === 0 && <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: "#94a3b8" }}>No requisitions yet</TableCell></TableRow>}
                 </TableBody>
               </Table>
+              </Box>
             )}
           </CardContent>
         )}
@@ -247,6 +249,7 @@ export default function RecruitmentPage() {
         {tab === 1 && (
           <CardContent sx={{ p: "0 !important" }}>
             {candLoading ? <Box sx={{ p: 4, textAlign: "center" }}><CircularProgress size={28} /></Box> : (
+              <Box sx={{ overflowX: "auto" }}>
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ "& th": { fontWeight: 700, color: "#64748b", fontSize: "0.75rem", textTransform: "uppercase", background: "#f8fafc" } }}>
@@ -265,6 +268,7 @@ export default function RecruitmentPage() {
                   {candidates.length === 0 && <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4, color: "#94a3b8" }}>No candidates yet</TableCell></TableRow>}
                 </TableBody>
               </Table>
+              </Box>
             )}
           </CardContent>
         )}
@@ -272,6 +276,7 @@ export default function RecruitmentPage() {
         {tab === 2 && (
           <CardContent sx={{ p: "0 !important" }}>
             {appLoading ? <Box sx={{ p: 4, textAlign: "center" }}><CircularProgress size={28} /></Box> : (
+              <Box sx={{ overflowX: "auto" }}>
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ "& th": { fontWeight: 700, color: "#64748b", fontSize: "0.75rem", textTransform: "uppercase", background: "#f8fafc" } }}>
@@ -297,6 +302,7 @@ export default function RecruitmentPage() {
                   {applications.length === 0 && <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4, color: "#94a3b8" }}>No applications yet</TableCell></TableRow>}
                 </TableBody>
               </Table>
+              </Box>
             )}
           </CardContent>
         )}

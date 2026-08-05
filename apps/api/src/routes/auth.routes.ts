@@ -29,6 +29,19 @@ const loginLimiter = rateLimit({
   },
 });
 
+// Strict rate limit: 5 password-reset requests per 15 minutes per IP
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many password reset attempts, please try again later' },
+  skip: (req) => {
+    const ip = req.ip ?? '';
+    return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  },
+});
+
 type Persona = 'EMPLOYER' | 'EMPLOYEE' | 'VENDOR' | 'CLIENT';
 
 function signAccessToken(
@@ -301,7 +314,7 @@ router.patch('/profile', async (req: Request, res: Response, next: NextFunction)
 });
 
 // POST /auth/forgot-password — public
-router.post('/forgot-password', validate(forgotPasswordSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/forgot-password', passwordResetLimiter as unknown as RequestHandler, validate(forgotPasswordSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email } = req.body as { email: string };
     const user = await prisma.user.findUnique({ where: { email } });
@@ -339,7 +352,7 @@ router.post('/forgot-password', validate(forgotPasswordSchema), async (req: Requ
 });
 
 // POST /auth/reset-password/:token — public
-router.post('/reset-password/:token', validate(resetPasswordSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/reset-password/:token', passwordResetLimiter as unknown as RequestHandler, validate(resetPasswordSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { token } = req.params;
     const { newPassword } = req.body as { newPassword: string };

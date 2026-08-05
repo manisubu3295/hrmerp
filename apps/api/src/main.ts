@@ -3,10 +3,11 @@ import express, { RequestHandler } from 'express';
 import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
-import morgan from 'morgan';
+import pinoHttp from 'pino-http';
 import rateLimit from 'express-rate-limit';
 import cron from 'node-cron';
 import prisma, { prismaUnscoped } from './lib/prisma';
+import { logger } from './lib/logger';
 import { jwtMiddleware } from './middleware/auth.middleware';
 import { tenantMiddleware } from './middleware/tenant.middleware';
 import { errorHandler, notFound } from './middleware/error.middleware';
@@ -14,6 +15,23 @@ import { auditMiddleware } from './middleware/audit.middleware';
 import { checkWorkPassExpiries } from './routes/compliance.routes';
 import { checkEquipmentMaintenanceDue } from './routes/equipment.routes';
 import { emitEvent } from './lib/events';
+
+// Fail fast on a misconfigured environment rather than surfacing cryptic
+// errors on the first request that needs auth, encryption, or the DB.
+function assertEnv(): void {
+  const missing = ['JWT_SECRET', 'ENCRYPTION_KEY', 'DATABASE_URL'].filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    console.error(`Missing required environment variable(s): ${missing.join(', ')}`);
+    process.exit(1);
+  }
+  const encryptionKey = process.env['ENCRYPTION_KEY'] ?? '';
+  if (!/^[0-9a-f]{64}$/i.test(encryptionKey)) {
+    console.error('ENCRYPTION_KEY must be a 64-character hex string (32 bytes) — see .env.example');
+    process.exit(1);
+  }
+}
+
+assertEnv();
 
 import authRouter from './routes/auth.routes';
 import clientsRouter from './routes/clients.routes';
@@ -46,15 +64,17 @@ import employeeCasesRouter from './routes/employee-cases.routes';
 
 const app = express();
 
+// Single reverse-proxy hop (nginx) in front of the app — trust its
+// X-Forwarded-For so req.ip (and therefore rate limiting) reflects the
+// real client, not the proxy.
+app.set('trust proxy', 1);
+
 // Security & logging middleware
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({ origin: process.env['FRONTEND_URL'] ?? 'http://localhost:3000', credentials: true }));
-app.use(morgan('dev'));
+app.use(pinoHttp({ logger }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Serve uploaded files statically (no auth required)
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Global rate limit: 200 req/min
 const globalRateLimit = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
@@ -65,6 +85,11 @@ app.use(jwtMiddleware);
 
 // Tenant context (org-scoping for the rest of the request pipeline)
 app.use(tenantMiddleware);
+
+// Serve uploaded files statically — requires a logged-in user (any tenant,
+// not per-org authorized; acceptable for now since no UI renders these
+// URLs directly, closes fully-anonymous access).
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Audit logging (fires on mutating requests after auth)
 app.use(auditMiddleware);
@@ -105,7 +130,7 @@ app.use(`${API}/employee-cases`, employeeCasesRouter);
 
 // Cron: check work pass expiries every day at 09:00
 cron.schedule('0 9 * * *', () => {
-  checkWorkPassExpiries().catch(console.error);
+  checkWorkPassExpiries().catch((err) => logger.error({ err }, '[cron] Work pass expiry check failed'));
 });
 
 // Cron: mark SENT/PARTIAL invoices past due date as OVERDUE — runs daily at 08:00
@@ -120,10 +145,10 @@ cron.schedule('0 8 * * *', async () => {
       data: { status: 'OVERDUE' },
     });
     if (result.count > 0) {
-      console.log(`[cron] Marked ${result.count} invoice(s) as OVERDUE`);
+      logger.info(`[cron] Marked ${result.count} invoice(s) as OVERDUE`);
     }
   } catch (err) {
-    console.error('[cron] Invoice overdue check failed:', err);
+    logger.error({ err }, '[cron] Invoice overdue check failed');
   }
 });
 
@@ -149,15 +174,15 @@ cron.schedule('30 8 * * *', async () => {
         availableQuantity: onHand, minStockLevel: item.minStockLevel,
       });
     }
-    if (alerted > 0) console.log(`[cron] Low stock alert — ${alerted} item(s)`);
+    if (alerted > 0) logger.info(`[cron] Low stock alert — ${alerted} item(s)`);
   } catch (err) {
-    console.error('[cron] Low stock check failed:', err);
+    logger.error({ err }, '[cron] Low stock check failed');
   }
 });
 
 // Cron: equipment/asset maintenance due — runs daily at 09:15
 cron.schedule('15 9 * * *', () => {
-  checkEquipmentMaintenanceDue().catch(console.error);
+  checkEquipmentMaintenanceDue().catch((err) => logger.error({ err }, '[cron] Equipment maintenance check failed'));
 });
 
 // Error handling
@@ -166,13 +191,26 @@ app.use(errorHandler);
 
 const PORT = Number(process.env['PORT'] ?? 4000);
 
-prisma.$connect()
+async function connectWithRetry(attempts = 5, delayMs = 2000): Promise<void> {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await prisma.$connect();
+      return;
+    } catch (err) {
+      if (attempt === attempts) throw err;
+      logger.warn(`Database connection attempt ${attempt}/${attempts} failed, retrying in ${delayMs}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+connectWithRetry()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`Aadhirai HRM OS API running on http://localhost:${PORT}/api/v1`);
+      logger.info(`Aadhirai HRM OS API running on http://localhost:${PORT}/api/v1`);
     });
   })
   .catch((err) => {
-    console.error('Failed to connect to database:', err);
+    logger.error({ err }, 'Failed to connect to database');
     process.exit(1);
   });

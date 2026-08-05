@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { requirePermission } from '../middleware/auth.middleware';
 import { INVOICE_OVERDUE_DAYS, WORK_PASS_ALERT_DAYS } from '@sankoerp/shared';
 import { ProjectStatus, InvoiceStatus } from '@prisma/client';
+import { monthRangeUTC } from '../lib/dates';
 
 const router = Router();
 
@@ -10,8 +11,7 @@ const router = Router();
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const { start: monthStart, end: monthEnd } = monthRangeUTC(now.getFullYear(), now.getMonth() + 1);
     const overdueThreshold = new Date(now.getTime() - INVOICE_OVERDUE_DAYS * 24 * 60 * 60 * 1000);
     const passAlertDate = new Date(now.getTime() + WORK_PASS_ALERT_DAYS.WARNING * 24 * 60 * 60 * 1000);
 

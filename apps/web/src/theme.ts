@@ -128,7 +128,7 @@ export const theme = createTheme({
       },
     },
     MuiTableContainer: {
-      styleOverrides: { root: { borderRadius: 16, border: 0, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)", backgroundColor: "#fff" } },
+      styleOverrides: { root: { borderRadius: 16, border: 0, overflowX: "auto", boxShadow: "0 1px 4px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)", backgroundColor: "#fff" } },
     },
     MuiTextField: { defaultProps: { size: "small", variant: "outlined" } },
     MuiOutlinedInput: {

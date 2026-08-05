@@ -369,6 +369,7 @@ export default function EquipmentDetailPage() {
 
       {tab === 0 && (
         <Card sx={{ border: "1px solid #e2e8f0", boxShadow: "none" }}>
+          <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead>
               <TableRow sx={{ "& th": { fontWeight: 700, fontSize: "0.75rem", color: "#64748b", background: "#f8fafc" } }}>
@@ -396,11 +397,13 @@ export default function EquipmentDetailPage() {
               )}
             </TableBody>
           </Table>
+          </Box>
         </Card>
       )}
 
       {tab === 1 && (
         <Card sx={{ border: "1px solid #e2e8f0", boxShadow: "none" }}>
+          <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead>
               <TableRow sx={{ "& th": { fontWeight: 700, fontSize: "0.75rem", color: "#64748b", background: "#f8fafc" } }}>
@@ -424,11 +427,13 @@ export default function EquipmentDetailPage() {
               )}
             </TableBody>
           </Table>
+          </Box>
         </Card>
       )}
 
       {isSerialized && tab === 2 && (
         <Card sx={{ border: "1px solid #e2e8f0", boxShadow: "none" }}>
+          <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead>
               <TableRow sx={{ "& th": { fontWeight: 700, fontSize: "0.75rem", color: "#64748b", background: "#f8fafc" } }}>
@@ -451,11 +456,13 @@ export default function EquipmentDetailPage() {
               )}
             </TableBody>
           </Table>
+          </Box>
         </Card>
       )}
 
       {tab === (isSerialized ? 3 : 2) && (
         <Card sx={{ border: "1px solid #e2e8f0", boxShadow: "none" }}>
+          <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead>
               <TableRow sx={{ "& th": { fontWeight: 700, fontSize: "0.75rem", color: "#64748b", background: "#f8fafc" } }}>
@@ -476,6 +483,7 @@ export default function EquipmentDetailPage() {
               )}
             </TableBody>
           </Table>
+          </Box>
         </Card>
       )}
 

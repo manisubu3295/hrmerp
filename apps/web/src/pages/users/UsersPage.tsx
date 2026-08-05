@@ -464,6 +464,7 @@ export default function UsersPage() {
             <CircularProgress />
           </Box>
         ) : (
+          <Box sx={{ overflowX: "auto" }}>
           <Table>
             <TableHead>
               <TableRow sx={{ bgcolor: "action.hover" }}>
@@ -559,6 +560,7 @@ export default function UsersPage() {
               )}
             </TableBody>
           </Table>
+          </Box>
         )}
       </Paper>
 

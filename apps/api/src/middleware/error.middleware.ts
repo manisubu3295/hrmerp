@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
+import { logger } from '../lib/logger';
 
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
-  console.error(err);
+  logger.error({ err }, 'Unhandled request error');
 
   let status = 500;
   let message = 'Internal server error';
@@ -20,7 +21,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     status = err.status;
     message = err.message;
   } else if (err instanceof Error) {
-    message = err.message;
+    message = process.env['NODE_ENV'] === 'production' ? 'Internal server error' : err.message;
   }
 
   res.status(status).json({

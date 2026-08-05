@@ -9,6 +9,7 @@ import { decryptField } from '../lib/encryption';
 import { validate } from '../middleware/validate';
 import { runPayrollSchema } from '../schemas/payroll.schema';
 import { resolveLeaveForPeriod } from '../lib/leave-payroll';
+import { monthRangeUTC } from '../lib/dates';
 
 const router = Router();
 
@@ -29,8 +30,7 @@ router.post(
 
       if (projectId && projects.length === 0) throw new AppError(404, `Project ${projectId} not found`);
 
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0); // last day of month
+      const { start: startDate, end: endDate } = monthRangeUTC(year, month);
 
       // ── Leave attribution pre-pass ──────────────────────────────────────
       // LeaveRequest is employee-scoped, but payroll runs per-project, so we

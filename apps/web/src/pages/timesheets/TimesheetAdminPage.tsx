@@ -338,6 +338,7 @@ export default function TimesheetAdminPage() {
             <Typography color="text.secondary">No timesheet entries for this period</Typography>
           </Box>
         ) : (
+          <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead>
               <TableRow sx={{ backgroundColor: "#f8fafc" }}>
@@ -409,6 +410,7 @@ export default function TimesheetAdminPage() {
               ))}
             </TableBody>
           </Table>
+          </Box>
         )}
       </Card>
 

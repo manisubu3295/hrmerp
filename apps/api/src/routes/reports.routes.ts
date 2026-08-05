@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
 import { requirePermission } from '../middleware/auth.middleware';
 import { Prisma, ProjectStatus } from '@prisma/client';
+import { monthRangeUTC } from '../lib/dates';
 
 /** Convert an array of objects to CSV string */
 function toCsv(rows: Record<string, unknown>[]): string {
@@ -98,8 +99,7 @@ router.get('/monthly-trends', requirePermission('reports:read'), async (req: Req
 
     const trends = await Promise.all(
       months.map(async (month) => {
-        const start = new Date(year, month - 1, 1);
-        const end = new Date(year, month, 0, 23, 59, 59);
+        const { start, end } = monthRangeUTC(year, month);
 
         const [revenue, expenses, payroll] = await Promise.all([
           prisma.payment.aggregate({ where: { paymentDate: { gte: start, lte: end } }, _sum: { amount: true } }),
@@ -184,15 +184,11 @@ router.get('/export/timesheets', requirePermission('reports:export'), async (req
   try {
     const { month, year, employeeId, projectId } = req.query as Record<string, string | undefined>;
 
+    const exportPeriod = month && year ? monthRangeUTC(Number(year), Number(month)) : null;
     const where: Prisma.AttendanceWhereInput = {
       ...(employeeId && { employeeId }),
       ...(projectId && { projectId }),
-      ...(month && year && {
-        date: {
-          gte: new Date(Number(year), Number(month) - 1, 1),
-          lt: new Date(Number(year), Number(month), 1),
-        },
-      }),
+      ...(exportPeriod && { date: { gte: exportPeriod.start, lte: exportPeriod.end } }),
     };
 
     const rows = await prisma.attendance.findMany({

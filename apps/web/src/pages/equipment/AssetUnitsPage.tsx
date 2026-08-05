@@ -60,6 +60,7 @@ export default function AssetUnitsPage() {
         {isLoading ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}><CircularProgress /></Box>
         ) : (
+          <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead>
               <TableRow sx={{ "& th": { fontWeight: 700, fontSize: "0.75rem", color: "#64748b", background: "#f8fafc" } }}>
@@ -85,6 +86,7 @@ export default function AssetUnitsPage() {
               )}
             </TableBody>
           </Table>
+          </Box>
         )}
 
         {meta && meta.totalPages > 1 && (

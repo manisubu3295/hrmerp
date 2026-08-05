@@ -8,6 +8,7 @@ import { upload } from '../lib/upload';
 import { UserRole } from '@sankoerp/shared';
 import { AttendanceStatus, Prisma } from '@prisma/client';
 import { RequestHandler } from 'express';
+import { monthRangeUTC } from '../lib/dates';
 
 const router = Router();
 
@@ -40,15 +41,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       employeeId = await resolveEmployeeId(req.user!.sub);
     }
 
+    const period = month && year ? monthRangeUTC(Number(year), Number(month)) : null;
     const where: Prisma.AttendanceWhereInput = {
       ...(employeeId && { employeeId }),
       ...(projectId && { projectId }),
-      ...(month && year && {
-        date: {
-          gte: new Date(Number(year), Number(month) - 1, 1),
-          lt: new Date(Number(year), Number(month), 1),
-        },
-      }),
+      ...(period && { date: { gte: period.start, lte: period.end } }),
     };
 
     const [rows, total] = await Promise.all([

@@ -44,8 +44,9 @@ export default function PayrollPage() {
       payrollApi.run({ projectId: projectId || undefined, month, year } as any),
     onSuccess: (res) => {
       const data = res?.data?.data;
-      toast.success(`Payroll processed — ${Array.isArray(data) ? data.length : "—"} records`);
-      setRunResult(Array.isArray(data) ? data : null);
+      const records = Array.isArray(data?.records) ? data.records : null;
+      toast.success(`Payroll processed — ${records ? records.length : data?.recordCount ?? "—"} records`);
+      setRunResult(records);
       qc.invalidateQueries({ queryKey: ["payroll-list"] });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? "Failed to run payroll"),
