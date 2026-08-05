@@ -2,8 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 import { AppError } from '../middleware/error.middleware';
-import { requireRoles } from '../middleware/auth.middleware';
-import { UserRole } from '@sankoerp/shared';
+import { requirePermission } from '../middleware/auth.middleware';
 import { Prisma } from '@prisma/client';
 
 const router = Router();
@@ -46,7 +45,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
       where: { id: req.params['id'] },
       include: {
         equipmentItems: {
-          select: { id: true, itemCode: true, name: true, availableQuantity: true, totalQuantity: true, isActive: true },
+          select: { id: true, itemCode: true, name: true, trackingMode: true, isActive: true },
           orderBy: { name: 'asc' },
         },
       },
@@ -57,7 +56,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // POST /suppliers
-router.post('/', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', requirePermission('supplier:create'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const count = await prisma.supplier.count();
     const supplierCode = `SUP-${String(count + 1).padStart(4, '0')}`;
@@ -70,6 +69,7 @@ router.post('/', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MAN
 
     const supplier = await prisma.supplier.create({
       data: {
+        organizationId: req.organizationId as string,
         supplierCode, name: dto.name.trim(),
         contactPerson: dto.contactPerson, email: dto.email, phone: dto.phone,
         address: dto.address, city: dto.city, country: dto.country,
@@ -81,7 +81,7 @@ router.post('/', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MAN
 });
 
 // PATCH /suppliers/:id
-router.patch('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id', requirePermission('supplier:update'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.supplier.findUnique({ where: { id: req.params['id'] } });
     if (!existing) throw new AppError(404, 'Supplier not found');
@@ -111,7 +111,7 @@ router.patch('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole
 });
 
 // DELETE /suppliers/:id  (soft-delete by deactivating)
-router.delete('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/:id', requirePermission('supplier:delete'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.supplier.findUnique({
       where: { id: req.params['id'] },

@@ -23,6 +23,7 @@ export function auditMiddleware(req: Request, _res: Response, next: NextFunction
 
   // Fire-and-forget audit write — don't await
   void writeAuditLog({
+    organizationId: req.organizationId ?? null,
     userId: req.user?.sub ?? null,
     action: req.method,
     entity,

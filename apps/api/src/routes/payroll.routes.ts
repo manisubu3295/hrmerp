@@ -1,26 +1,22 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
 import { AppError } from '../middleware/error.middleware';
-import { requireRoles } from '../middleware/auth.middleware';
-import { calculateCpf } from '../lib/cpf';
+import { requirePermission } from '../middleware/auth.middleware';
+import { calculateStatutoryContribution, ageFromDob } from '../lib/statutory-contributions';
 import { generatePayslipPdf } from '../lib/pdf';
 import { UserRole } from '@sankoerp/shared';
-import { z } from 'zod';
+import { decryptField } from '../lib/encryption';
 import { validate } from '../middleware/validate';
+import { runPayrollSchema } from '../schemas/payroll.schema';
+import { resolveLeaveForPeriod } from '../lib/leave-payroll';
 
 const router = Router();
-
-const runPayrollSchema = z.object({
-  projectId: z.string().optional(),
-  month: z.number().int().min(1).max(12),
-  year: z.number().int().min(2020).max(2100),
-});
 
 // POST /payroll/run
 // Generates PayrollRecord rows from attendance data for the given project/month/year
 router.post(
   '/run',
-  requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER),
+  requirePermission('payroll:run'),
   validate(runPayrollSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -33,13 +29,126 @@ router.post(
 
       if (projectId && projects.length === 0) throw new AppError(404, `Project ${projectId} not found`);
 
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0); // last day of month
+
+      // ── Leave attribution pre-pass ──────────────────────────────────────
+      // LeaveRequest is employee-scoped, but payroll runs per-project, so we
+      // resolve up front which project each employee's approved leave for
+      // this period should count against. Deliberately simple v1 policy (not
+      // a proration engine): an employee with exactly one active project
+      // assignment gets 100% of their leave there; with more than one, leave
+      // is attributed entirely to whichever project they logged the most
+      // attendance on this period (deterministic tie-break on lowest
+      // projectId). Other projects get zero leave days for that employee —
+      // surfaced via `warnings` in the response rather than silently dropped.
+      const projectIds = projects.filter(Boolean).map((p) => p!.id);
+      const warnings: string[] = [];
+      const leaveByEmployeeProject = new Map<string, { paidLeaveDays: number; unpaidLeaveDays: number }>();
+
+      if (projectIds.length > 0) {
+        const assignmentsInRun = await prisma.projectEmployee.findMany({
+          where: { projectId: { in: projectIds }, isActive: true },
+          select: { employeeId: true },
+        });
+        const employeeIds = [...new Set(assignmentsInRun.map((a) => a.employeeId))];
+
+        if (employeeIds.length > 0) {
+          const [allActiveAssignments, leaveRequests, leavePolicies, attendanceInPeriod, employeeNames] = await Promise.all([
+            prisma.projectEmployee.findMany({
+              where: { employeeId: { in: employeeIds }, isActive: true },
+              select: { employeeId: true, projectId: true },
+            }),
+            prisma.leaveRequest.findMany({
+              where: {
+                employeeId: { in: employeeIds },
+                status: 'APPROVED',
+                startDate: { lte: endDate },
+                endDate: { gte: startDate },
+              },
+            }),
+            prisma.leavePolicy.findMany({ where: { isActive: true } }),
+            prisma.attendance.findMany({
+              where: {
+                employeeId: { in: employeeIds },
+                date: { gte: startDate, lte: endDate },
+                status: { in: ['PRESENT', 'HALF_DAY'] },
+                approvalStatus: 'APPROVED',
+              },
+              select: { employeeId: true, projectId: true, date: true },
+            }),
+            prisma.employee.findMany({
+              where: { id: { in: employeeIds } },
+              select: { id: true, firstName: true, lastName: true },
+            }),
+          ]);
+
+          const policyByType = new Map(leavePolicies.map((p) => [p.leaveType, p]));
+          const nameByEmployee = new Map(employeeNames.map((e) => [e.id, `${e.firstName} ${e.lastName}`]));
+
+          const activeProjectsByEmployee = new Map<string, string[]>();
+          for (const a of allActiveAssignments) {
+            const arr = activeProjectsByEmployee.get(a.employeeId) ?? [];
+            arr.push(a.projectId);
+            activeProjectsByEmployee.set(a.employeeId, arr);
+          }
+
+          const attendanceCountByEmpProject = new Map<string, number>();
+          const attendanceDatesByEmployee = new Map<string, Set<string>>();
+          for (const a of attendanceInPeriod) {
+            if (a.projectId) {
+              const key = `${a.employeeId}:${a.projectId}`;
+              attendanceCountByEmpProject.set(key, (attendanceCountByEmpProject.get(key) ?? 0) + 1);
+            }
+            const dateSet = attendanceDatesByEmployee.get(a.employeeId) ?? new Set<string>();
+            dateSet.add(a.date.toISOString().slice(0, 10));
+            attendanceDatesByEmployee.set(a.employeeId, dateSet);
+          }
+
+          const leaveRequestsByEmployee = new Map<string, typeof leaveRequests>();
+          for (const lr of leaveRequests) {
+            const arr = leaveRequestsByEmployee.get(lr.employeeId) ?? [];
+            arr.push(lr);
+            leaveRequestsByEmployee.set(lr.employeeId, arr);
+          }
+
+          for (const employeeId of employeeIds) {
+            const activeProjects = [...new Set(activeProjectsByEmployee.get(employeeId) ?? [])].sort();
+            let winningProjectId: string | undefined;
+            if (activeProjects.length === 1) {
+              winningProjectId = activeProjects[0];
+            } else if (activeProjects.length > 1) {
+              let bestCount = -1;
+              for (const pid of activeProjects) {
+                const count = attendanceCountByEmpProject.get(`${employeeId}:${pid}`) ?? 0;
+                if (count > bestCount) {
+                  bestCount = count;
+                  winningProjectId = pid;
+                }
+              }
+              warnings.push(
+                `${nameByEmployee.get(employeeId) ?? employeeId} has ${activeProjects.length} active project assignments this period; their approved leave was attributed entirely to project ${winningProjectId}.`,
+              );
+            }
+            if (!winningProjectId) continue;
+
+            const result = resolveLeaveForPeriod({
+              leaveRequests: leaveRequestsByEmployee.get(employeeId) ?? [],
+              periodStart: startDate,
+              periodEnd: endDate,
+              attendanceDatesWorked: attendanceDatesByEmployee.get(employeeId) ?? new Set(),
+              policyByType,
+            });
+            leaveByEmployeeProject.set(`${employeeId}:${winningProjectId}`, result);
+          }
+        }
+      }
+
       const allRecords: Array<{ projectId: string; projectName: string; employeeName: string; [key: string]: unknown }> = [];
 
       for (const project of projects) {
         if (!project) continue;
         const pid = project.id;
-        const startDate = new Date(year, month - 1, 1);
-        const endDate = new Date(year, month, 0); // last day of month
 
         // Get all active assignments for this project
         const assignments = await prisma.projectEmployee.findMany({
@@ -52,9 +161,9 @@ router.post(
                 lastName: true,
                 dailyRate: true,
                 allowances: true,
-                cpfApplicable: true,
                 dateOfBirth: true,
                 nationality: true,
+                statutoryScheme: true,
               },
             },
           },
@@ -63,12 +172,15 @@ router.post(
         for (const assignment of assignments) {
           const { employee } = assignment;
 
-          // Sum attendance for this employee in this project/month
+          // Sum attendance for this employee in this project/month. Only
+          // approved entries count toward pay — see timesheets.routes.ts
+          // approve/reject.
           const attendances = await prisma.attendance.findMany({
             where: {
               employeeId: employee.id,
               projectId: pid,
               date: { gte: startDate, lte: endDate },
+              approvalStatus: 'APPROVED',
             },
           });
 
@@ -77,29 +189,29 @@ router.post(
 
           const overtimeDays = attendances.reduce((s, a) => s + Number(a.overtimeHours ?? 0), 0) / 8;
 
-          const basicPay = Number(assignment.dailyRate) * daysWorked;
+          const { paidLeaveDays, unpaidLeaveDays } = leaveByEmployeeProject.get(`${employee.id}:${pid}`)
+            ?? { paidLeaveDays: 0, unpaidLeaveDays: 0 };
+
+          // Paid leave days count toward pay as if worked, so approved paid
+          // leave doesn't reduce salary. Unpaid leave days already have no
+          // attendance row (so they already contribute 0 to daysWorked) —
+          // leaveDeduction below is an INFORMATIONAL payslip line only. Do
+          // NOT also subtract it from basicPay, or unpaid leave gets
+          // deducted twice.
+          const effectiveDaysWorked = daysWorked + paidLeaveDays;
+          const basicPay = Number(assignment.dailyRate) * effectiveDaysWorked;
+          const leaveDeduction = unpaidLeaveDays * Number(assignment.dailyRate);
+
           const overtimePay = attendances.reduce((s, a) => s + Number(a.overtimePay), 0);
           const allowances = Number(employee.allowances);
           const grossSalary = basicPay + overtimePay + allowances;
 
-          // CPF Calculation (Singapore)
-          let cpfEmployee = 0;
-          let cpfEmployer = 0;
-          if (employee.cpfApplicable) {
-            const age = employee.dateOfBirth
-              ? Math.floor((new Date().getTime() - new Date(employee.dateOfBirth).getTime()) / (365.25 * 24 * 3600 * 1000))
-              : 35;
-            const citizenship = (employee.nationality === 'Singapore'
-              || employee.nationality === 'Singaporean'
-              || employee.nationality === 'PR'
-              || employee.nationality === 'Permanent Resident')
-              ? 'SC_PR'
-              : 'FOREIGNER';
-
-            const cpf = calculateCpf({ grossSalary, age, citizenshipStatus: citizenship });
-            cpfEmployee = cpf.employeeContribution;
-            cpfEmployer = cpf.employerContribution;
-          }
+          const { employeeContribution: cpfEmployee, employerContribution: cpfEmployer } = calculateStatutoryContribution({
+            scheme: employee.statutoryScheme,
+            grossSalary,
+            age: ageFromDob(employee.dateOfBirth),
+            nationality: employee.nationality,
+          });
 
           const totalPayable = grossSalary - cpfEmployee;
           const totalCostToCompany = grossSalary + cpfEmployer;
@@ -115,12 +227,16 @@ router.post(
               },
             },
             create: {
+              organizationId: req.organizationId as string,
               projectId: pid,
               employeeId: employee.id,
               month,
               year,
-              daysWorked: Math.floor(daysWorked),
+              daysWorked: Math.floor(effectiveDaysWorked),
               overtimeDays,
+              paidLeaveDays,
+              unpaidLeaveDays,
+              leaveDeduction,
               basicPay,
               overtimePay,
               allowances,
@@ -130,8 +246,11 @@ router.post(
               totalCostToCompany,
             },
             update: {
-              daysWorked: Math.floor(daysWorked),
+              daysWorked: Math.floor(effectiveDaysWorked),
               overtimeDays,
+              paidLeaveDays,
+              unpaidLeaveDays,
+              leaveDeduction,
               basicPay,
               overtimePay,
               allowances,
@@ -145,16 +264,50 @@ router.post(
         }
       }
 
+      const runTotalPayable = allRecords.reduce((s, r) => s + Number(r.totalPayable), 0);
+      const runTotalCostToCompany = allRecords.reduce((s, r) => s + Number(r.totalCostToCompany), 0);
+
+      // Group this batch's records under one PayrollRun. Re-running the same
+      // project/month/year re-attaches the (upserted, still-current) records
+      // to the newest run rather than duplicating them — correct semantics for
+      // "one record per employee-period, always current" — but it does mean an
+      // older run's cached totals can go stale if a later run re-touches its
+      // records. Acceptable for this pass, flagged here rather than glossed over.
+      const runSeq = (await prisma.payrollRun.count({ where: { month, year } })) + 1;
+      const payrollRun = await prisma.payrollRun.create({
+        data: {
+          organizationId: req.organizationId as string,
+          runCode: `PR-${year}-${String(month).padStart(2, '0')}-${String(runSeq).padStart(3, '0')}`,
+          projectId: projectId ?? null,
+          month,
+          year,
+          status: 'COMPLETED',
+          totalPayable: runTotalPayable,
+          totalCostToCompany: runTotalCostToCompany,
+          recordCount: allRecords.length,
+          runById: req.user?.sub ?? null,
+        },
+      });
+      if (allRecords.length > 0) {
+        await prisma.payrollRecord.updateMany({
+          where: { id: { in: allRecords.map((r) => r['id'] as string) } },
+          data: { payrollRunId: payrollRun.id },
+        });
+      }
+
       res.json({
         success: true,
         data: {
+          payrollRunId: payrollRun.id,
+          runCode: payrollRun.runCode,
           projectId: projectId ?? null,
           month,
           year,
           recordCount: allRecords.length,
-          totalPayable: allRecords.reduce((s, r) => s + Number(r.totalPayable), 0),
-          totalCostToCompany: allRecords.reduce((s, r) => s + Number(r.totalCostToCompany), 0),
+          totalPayable: runTotalPayable,
+          totalCostToCompany: runTotalCostToCompany,
           records: allRecords,
+          warnings,
         },
       });
     } catch (e) {
@@ -163,11 +316,56 @@ router.post(
   },
 );
 
+// GET /payroll/runs — list payroll runs
+router.get('/runs', requirePermission('payroll:read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const year = req.query['year'] ? Number(req.query['year']) : undefined;
+    const runs = await prisma.payrollRun.findMany({
+      where: { ...(year && { year }) },
+      include: { project: { select: { id: true, projectCode: true, name: true } } },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }, { runAt: 'desc' }],
+    });
+    res.json({ success: true, data: runs });
+  } catch (e) { next(e); }
+});
+
+// GET /payroll/runs/:id — a run and the records it grouped
+router.get('/runs/:id', requirePermission('payroll:read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const run = await prisma.payrollRun.findUnique({
+      where: { id: req.params['id'] },
+      include: { project: { select: { id: true, projectCode: true, name: true } }, records: true },
+    });
+    if (!run) throw new AppError(404, 'Payroll run not found');
+    res.json({ success: true, data: run });
+  } catch (e) { next(e); }
+});
+
+// PATCH /payroll/runs/:id/mark-paid — bulk mark-paid every record in the run
+router.patch('/runs/:id/mark-paid', requirePermission('payroll:mark_paid'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const run = await prisma.payrollRun.findUnique({ where: { id: req.params['id'] } });
+    if (!run) throw new AppError(404, 'Payroll run not found');
+    if (run.status === 'PAID') throw new AppError(400, 'Payroll run already marked as paid');
+
+    const paidAt = new Date();
+    await prisma.payrollRecord.updateMany({
+      where: { payrollRunId: run.id, isPaid: false },
+      data: { isPaid: true, paidAt },
+    });
+    const updated = await prisma.payrollRun.update({
+      where: { id: run.id },
+      data: { status: 'PAID', paidAt },
+    });
+    res.json({ success: true, data: updated });
+  } catch (e) { next(e); }
+});
+
 // GET /payroll
 // List payroll records with filters
 router.get(
   '/',
-  requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER),
+  requirePermission('payroll:read'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const projectId = req.query['projectId'] as string | undefined;
@@ -227,6 +425,7 @@ router.get('/payslips/:employeeId', async (req: Request, res: Response, next: Ne
       select: { id: true, firstName: true, lastName: true, employeeCode: true, jobTitle: true, bankName: true, bankAccountNo: true },
     });
     if (!employee) throw new AppError(404, 'Employee not found');
+    if (employee.bankAccountNo) employee.bankAccountNo = decryptField(employee.bankAccountNo);
 
     const year = req.query['year'] ? Number(req.query['year']) : undefined;
     const records = await prisma.payrollRecord.findMany({
@@ -250,7 +449,7 @@ router.get('/payslips/:employeeId', async (req: Request, res: Response, next: Ne
 // Mark a payroll record as paid
 router.patch(
   '/:id/paid',
-  requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN),
+  requirePermission('payroll:mark_paid'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const record = await prisma.payrollRecord.findUnique({ where: { id: req.params['id'] } });
@@ -296,9 +495,10 @@ router.get('/:id/payslip', async (req: Request, res: Response, next: NextFunctio
       select: { id: true, firstName: true, lastName: true, employeeCode: true, jobTitle: true, bankName: true, bankAccountNo: true },
     });
     if (!employee) throw new AppError(404, 'Employee not found');
+    if (employee.bankAccountNo) employee.bankAccountNo = decryptField(employee.bankAccountNo);
 
     // Get org name for PDF header
-    const org = await prisma.organization.findFirst({ select: { name: true } });
+    const org = await prisma.organization.findUnique({ where: { id: req.organizationId as string }, select: { name: true } });
 
     const pdfBuffer = await generatePayslipPdf({
       employee,
@@ -306,6 +506,9 @@ router.get('/:id/payslip', async (req: Request, res: Response, next: NextFunctio
       month: record.month,
       year: record.year,
       daysWorked: record.daysWorked,
+      paidLeaveDays: record.paidLeaveDays,
+      unpaidLeaveDays: record.unpaidLeaveDays,
+      leaveDeduction: record.leaveDeduction,
       basicPay: record.basicPay,
       overtimePay: record.overtimePay,
       allowances: record.allowances,

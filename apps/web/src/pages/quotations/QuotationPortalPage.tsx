@@ -90,9 +90,9 @@ export default function QuotationPortalPage() {
                 display: "flex", alignItems: "center", justifyContent: "center",
               }}
             >
-              <Typography sx={{ color: "#fff", fontWeight: 800, fontSize: "1rem" }}>S</Typography>
+              <Typography sx={{ color: "#fff", fontWeight: 800, fontSize: "1rem" }}>A</Typography>
             </Box>
-            <Typography sx={{ fontWeight: 800, fontSize: "1rem", color: "#0f172a" }}>SankoERP</Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: "1rem", color: "#0f172a" }}>Aadhirai HRM OS</Typography>
           </Box>
           {statusChip(q.status)}
         </Box>
@@ -257,7 +257,7 @@ export default function QuotationPortalPage() {
         )}
 
         <Typography sx={{ textAlign: "center", mt: 4, color: "#94a3b8", fontSize: "0.75rem" }}>
-          Powered by SankoERP — Confidential quotation document
+          Powered by Aadhirai HRM OS — Confidential quotation document
         </Typography>
       </Box>
 

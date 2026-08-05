@@ -9,7 +9,7 @@ test.describe('Compliance Module', () => {
   });
 
   test('displays compliance page', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /compliance|work pass/i }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/work pass/i).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('shows work pass dashboard cards', async ({ page }) => {

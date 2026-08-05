@@ -1,8 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
 import { AppError } from '../middleware/error.middleware';
-import { requireRoles } from '../middleware/auth.middleware';
-import { UserRole } from '@sankoerp/shared';
+import { requirePermission } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -26,7 +25,7 @@ router.get('/events', async (req: Request, res: Response, next: NextFunction) =>
 
 // ─── GET /calendar/all ────────────────────────────────────────────────────────
 // Returns all holidays (no date filter) — admin
-router.get('/all', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/all', requirePermission('calendar:read_all'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const holidays = await (prisma as any).holiday.findMany({
       orderBy: { date: 'asc' },
@@ -57,7 +56,7 @@ router.get('/year/:year', async (req: Request, res: Response, next: NextFunction
 });
 
 // ─── POST /calendar/events ────────────────────────────────────────────────────
-router.post('/events', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/events', requirePermission('calendar:create'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { name, date, type, description, isRecurring, country } = req.body;
     if (!name || !date) throw new AppError(400, 'name and date are required');
@@ -78,7 +77,7 @@ router.post('/events', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), async
 });
 
 // ─── PATCH /calendar/events/:id ───────────────────────────────────────────────
-router.patch('/events/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/events/:id', requirePermission('calendar:update'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const existing = await (prisma as any).holiday.findUnique({ where: { id: req.params['id'] } });
     if (!existing) throw new AppError(404, 'Event not found');
@@ -102,7 +101,7 @@ router.patch('/events/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), 
 });
 
 // ─── DELETE /calendar/events/:id ──────────────────────────────────────────────
-router.delete('/events/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/events/:id', requirePermission('calendar:delete'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const existing = await (prisma as any).holiday.findUnique({ where: { id: req.params['id'] } });
     if (!existing) throw new AppError(404, 'Event not found');

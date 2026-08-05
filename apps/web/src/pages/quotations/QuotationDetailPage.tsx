@@ -4,7 +4,7 @@ import {
   Box, Button, Card, CardContent, Chip, CircularProgress, Alert, Typography,
   Grid, Divider, Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
 } from "@mui/material";
-import { ArrowBack, Send, CheckCircle, TransformOutlined, RequestQuote } from "@mui/icons-material";
+import { ArrowBack, Send, CheckCircle, TransformOutlined, RequestQuote, PictureAsPdf } from "@mui/icons-material";
 import { toast } from "sonner";
 import { quotationsApi } from "@/lib/api";
 import { formatDate, formatCurrency, getStatusChipColor } from "@/lib/utils";
@@ -41,6 +41,20 @@ export default function QuotationDetailPage() {
     onError: () => toast.error("Failed to convert to project"),
   });
 
+  const handleDownloadPdf = async () => {
+    try {
+      const res = await quotationsApi.downloadPdf(id!);
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${q.quotationCode ?? "quotation"}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Failed to download PDF");
+    }
+  };
+
   if (isLoading) return <Box sx={{ display: "flex", justifyContent: "center", mt: 10 }}><CircularProgress /></Box>;
   if (error || !data) return <Alert severity="error">Quotation not found.</Alert>;
 
@@ -61,6 +75,7 @@ export default function QuotationDetailPage() {
           </Box>
         </Box>
         <Chip label={q.status} color={getStatusChipColor(q.status)} />
+        <Button variant="outlined" size="small" startIcon={<PictureAsPdf sx={{ fontSize: 15 }} />} onClick={handleDownloadPdf} sx={{ borderRadius: "8px" }}>Download PDF</Button>
         {q.status === "DRAFT" && (
           <Button variant="outlined" size="small" startIcon={<Send sx={{ fontSize: 15 }} />} onClick={() => statusMut.mutate({ status: "SENT" })} disabled={statusMut.isPending} sx={{ borderRadius: "8px" }}>Send</Button>
         )}
@@ -84,18 +99,22 @@ export default function QuotationDetailPage() {
                 <TableContainer sx={{ border: "none" }}>
                   <Table size="small">
                     <TableHead>
-                      <TableRow>
-                        <TableCell>Description</TableCell>
-                        <TableCell align="right">Qty</TableCell>
-                        <TableCell align="right">Unit Price</TableCell>
-                        <TableCell align="right">Total</TableCell>
+                      <TableRow sx={{ backgroundColor: "#f8fafc" }}>
+                        <TableCell sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase" }}>Description</TableCell>
+                        <TableCell sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase" }}>Worker Type</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase" }}>Qty</TableCell>
+                        <TableCell sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase" }}>Unit</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase" }}>Unit Rate</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase" }}>Amount</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {items.map((item: any, i: number) => (
-                        <TableRow key={i}>
+                        <TableRow key={i} sx={{ "&:last-child td": { borderBottom: 0 } }}>
                           <TableCell sx={{ fontSize: "0.8125rem" }}>{item.description}</TableCell>
-                          <TableCell align="right" sx={{ fontSize: "0.8125rem" }}>{item.quantity}</TableCell>
+                          <TableCell sx={{ fontSize: "0.8125rem", color: "#64748b" }}>{item.workerType ?? "—"}</TableCell>
+                          <TableCell align="right" sx={{ fontSize: "0.8125rem" }}>{Number(item.quantity).toFixed(1)}</TableCell>
+                          <TableCell sx={{ fontSize: "0.8125rem", color: "#64748b" }}>{item.unit ?? "days"}</TableCell>
                           <TableCell align="right" sx={{ fontSize: "0.8125rem" }}>{formatCurrency(item.unitRate, q.currency)}</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 600, fontSize: "0.8125rem" }}>{formatCurrency(item.amount, q.currency)}</TableCell>
                         </TableRow>
@@ -108,12 +127,24 @@ export default function QuotationDetailPage() {
               )}
               <Divider sx={{ my: 2 }} />
               <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
-                <Box sx={{ display: "flex", gap: 4 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", width: 280 }}>
                   <Typography sx={{ fontSize: "0.8125rem", color: "#64748b" }}>Subtotal</Typography>
                   <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>{formatCurrency(q.subtotal ?? q.totalAmount, q.currency)}</Typography>
                 </Box>
-                <Divider sx={{ width: "100%", my: 1 }} />
-                <Box sx={{ display: "flex", gap: 4 }}>
+                {Number(q.discountAmount) > 0 && (
+                  <Box sx={{ display: "flex", justifyContent: "space-between", width: 280 }}>
+                    <Typography sx={{ fontSize: "0.8125rem", color: "#64748b" }}>Discount</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, color: "#059669" }}>− {formatCurrency(q.discountAmount, q.currency)}</Typography>
+                  </Box>
+                )}
+                {Number(q.taxAmount) > 0 && (
+                  <Box sx={{ display: "flex", justifyContent: "space-between", width: 280 }}>
+                    <Typography sx={{ fontSize: "0.8125rem", color: "#64748b" }}>GST ({(Number(q.taxRate ?? 0.09) * 100).toFixed(0)}%)</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>{formatCurrency(q.taxAmount, q.currency)}</Typography>
+                  </Box>
+                )}
+                <Divider sx={{ width: 280, my: 1 }} />
+                <Box sx={{ display: "flex", justifyContent: "space-between", width: 280 }}>
                   <Typography sx={{ fontWeight: 700, fontSize: "1rem" }}>Total</Typography>
                   <Typography sx={{ fontWeight: 800, fontSize: "1rem", color: "#0f172a" }}>{formatCurrency(q.totalAmount, q.currency)}</Typography>
                 </Box>

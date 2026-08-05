@@ -108,7 +108,7 @@ export default function SupplierDetailPage() {
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ bgcolor: "#f8fafc" }}>
-                    {["Code", "Name", "Available", "Total", "Status"].map(h => (
+                    {["Code", "Name", "Tracking", "Status"].map(h => (
                       <TableCell key={h} sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</TableCell>
                     ))}
                   </TableRow>
@@ -119,8 +119,7 @@ export default function SupplierDetailPage() {
                       onClick={() => navigate(`/equipment/${item.id}`)}>
                       <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>{item.itemCode}</TableCell>
                       <TableCell sx={{ fontWeight: 500 }}>{item.name}</TableCell>
-                      <TableCell>{item.availableQuantity}</TableCell>
-                      <TableCell>{item.totalQuantity}</TableCell>
+                      <TableCell>{item.trackingMode === "SERIALIZED" ? "Serialized" : "Bulk"}</TableCell>
                       <TableCell>
                         <Chip label={item.isActive ? "Active" : "Retired"} color={item.isActive ? "success" : "default"} size="small" variant="outlined" />
                       </TableCell>

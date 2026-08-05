@@ -1,13 +1,154 @@
 ﻿import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box, Button, Card, CardContent, Chip, CircularProgress, Alert, Typography,
-  Grid, Divider, Tabs, Tab, Avatar,
+  Grid, Divider, Tabs, Tab, Avatar, Table, TableHead, TableRow, TableCell, TableBody,
+  FormControl, InputLabel, Select, MenuItem,
 } from "@mui/material";
 import { ArrowBack, Edit, People } from "@mui/icons-material";
-import { employeesApi } from "@/lib/api";
-import { formatDate, getStatusChipColor } from "@/lib/utils";
+import { toast } from "sonner";
+import { employeesApi, skillsApi, checklistsApi, performanceApi, employeeCasesApi } from "@/lib/api";
+import { formatDate } from "@/lib/utils";
+
+const PROFICIENCIES = ["BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT"];
+
+function SkillsTab({ employeeId }: { employeeId: string }) {
+  const qc = useQueryClient();
+  const { data: skillsData, isLoading } = useQuery({ queryKey: ["employee-skills", employeeId], queryFn: () => skillsApi.getEmployeeSkills(employeeId) });
+  const employeeSkills: any[] = skillsData?.data?.data ?? [];
+
+  const { data: catalogData } = useQuery({ queryKey: ["skill-catalog"], queryFn: () => skillsApi.getCatalog() });
+  const catalog: any[] = catalogData?.data?.data ?? [];
+  const available = catalog.filter(c => !employeeSkills.some(es => es.skillId === c.id));
+
+  const [skillId, setSkillId] = useState("");
+  const addMut = useMutation({
+    mutationFn: () => skillsApi.setEmployeeSkill(employeeId, skillId, { proficiency: "BEGINNER" }),
+    onSuccess: () => { toast.success("Skill added"); qc.invalidateQueries({ queryKey: ["employee-skills", employeeId] }); setSkillId(""); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? "Failed to add skill"),
+  });
+
+  if (isLoading) return <Box sx={{ textAlign: "center", p: 4 }}><CircularProgress size={24} /></Box>;
+
+  return (
+    <Card>
+      <CardContent sx={{ p: 3 }}>
+        <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+          <FormControl size="small" sx={{ minWidth: 220 }}>
+            <InputLabel>Add Skill</InputLabel>
+            <Select value={skillId} label="Add Skill" onChange={e => setSkillId(e.target.value)}>
+              {available.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <Button variant="contained" size="small" disabled={!skillId || addMut.isPending} onClick={() => addMut.mutate()}
+            sx={{ borderRadius: "8px", textTransform: "none", fontWeight: 700, boxShadow: "none" }}>Add</Button>
+        </Box>
+        {employeeSkills.length === 0 ? (
+          <Typography variant="body2" sx={{ color: "#94a3b8" }}>No skills recorded yet.</Typography>
+        ) : (
+          <Table size="small">
+            <TableHead><TableRow><TableCell>Skill</TableCell><TableCell>Proficiency</TableCell></TableRow></TableHead>
+            <TableBody>
+              {employeeSkills.map(es => (
+                <TableRow key={es.id}>
+                  <TableCell sx={{ fontSize: "0.8rem" }}>{es.skill?.name}</TableCell>
+                  <TableCell><Chip label={es.proficiency} size="small" sx={{ fontWeight: 600, fontSize: "0.7rem" }} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ChecklistsTab({ employeeId }: { employeeId: string }) {
+  const { data, isLoading } = useQuery({ queryKey: ["employee-checklists", employeeId], queryFn: () => checklistsApi.getInstances({ employeeId }) });
+  const instances: any[] = data?.data?.data ?? [];
+  if (isLoading) return <Box sx={{ textAlign: "center", p: 4 }}><CircularProgress size={24} /></Box>;
+  return (
+    <Card>
+      <CardContent sx={{ p: 3 }}>
+        {instances.length === 0 ? (
+          <Typography variant="body2" sx={{ color: "#94a3b8" }}>No onboarding/offboarding checklists for this employee.</Typography>
+        ) : (
+          <Table size="small">
+            <TableHead><TableRow><TableCell>Purpose</TableCell><TableCell>Template</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+            <TableBody>
+              {instances.map(i => (
+                <TableRow key={i.id}>
+                  <TableCell sx={{ fontSize: "0.8rem" }}>{i.purpose}</TableCell>
+                  <TableCell sx={{ fontSize: "0.8rem" }}>{i.template?.name}</TableCell>
+                  <TableCell><Chip label={i.status} size="small" color={i.status === "COMPLETED" ? "success" : "warning"} sx={{ fontWeight: 600, fontSize: "0.7rem" }} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PerformanceTab({ employeeId }: { employeeId: string }) {
+  const { data, isLoading } = useQuery({ queryKey: ["employee-performance", employeeId], queryFn: () => performanceApi.getReviews({ employeeId }) });
+  const reviews: any[] = data?.data?.data ?? [];
+  if (isLoading) return <Box sx={{ textAlign: "center", p: 4 }}><CircularProgress size={24} /></Box>;
+  return (
+    <Card>
+      <CardContent sx={{ p: 3 }}>
+        {reviews.length === 0 ? (
+          <Typography variant="body2" sx={{ color: "#94a3b8" }}>No performance reviews yet.</Typography>
+        ) : (
+          <Table size="small">
+            <TableHead><TableRow><TableCell>Cycle</TableCell><TableCell align="right">Self</TableCell><TableCell align="right">Manager</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+            <TableBody>
+              {reviews.map(r => (
+                <TableRow key={r.id}>
+                  <TableCell sx={{ fontSize: "0.8rem" }}>{r.cycle?.name}</TableCell>
+                  <TableCell align="right">{r.selfRating ?? "—"}</TableCell>
+                  <TableCell align="right">{r.managerRating ?? "—"}</TableCell>
+                  <TableCell><Chip label={r.status.replace(/_/g, " ")} size="small" sx={{ fontWeight: 600, fontSize: "0.7rem" }} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CasesTab({ employeeId }: { employeeId: string }) {
+  const { data, isLoading } = useQuery({ queryKey: ["employee-cases-for-employee", employeeId], queryFn: () => employeeCasesApi.getAll({ employeeId }) });
+  const cases: any[] = data?.data?.data ?? [];
+  if (isLoading) return <Box sx={{ textAlign: "center", p: 4 }}><CircularProgress size={24} /></Box>;
+  return (
+    <Card>
+      <CardContent sx={{ p: 3 }}>
+        {cases.length === 0 ? (
+          <Typography variant="body2" sx={{ color: "#94a3b8" }}>No cases on record for this employee.</Typography>
+        ) : (
+          <Table size="small">
+            <TableHead><TableRow><TableCell>Code</TableCell><TableCell>Title</TableCell><TableCell>Type</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+            <TableBody>
+              {cases.map(c => (
+                <TableRow key={c.id}>
+                  <TableCell sx={{ fontWeight: 600, color: "#2563eb", fontSize: "0.8rem" }}>{c.caseCode}</TableCell>
+                  <TableCell sx={{ fontSize: "0.8rem" }}>{c.title}</TableCell>
+                  <TableCell sx={{ fontSize: "0.8rem" }}>{c.type}</TableCell>
+                  <TableCell><Chip label={c.status} size="small" sx={{ fontWeight: 600, fontSize: "0.7rem" }} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function InfoField({ label, value }: { label: string; value?: React.ReactNode }) {
   return (
@@ -40,7 +181,9 @@ export default function EmployeeDetailPage() {
   if (error || !data) return <Alert severity="error">Employee not found.</Alert>;
 
   const e = data?.data?.data ?? data?.data ?? {};
-  const initials = (e.fullName ?? "?").split(" ").map((p: string) => p[0]).join("").slice(0, 2).toUpperCase();
+  const fullName = e.firstName ? `${e.firstName} ${e.lastName}` : "";
+  const initials = (fullName || "?").split(" ").map((p: string) => p[0]).join("").slice(0, 2).toUpperCase();
+  const currentWorkPass = e.workPass?.[0];
 
   return (
     <Box>
@@ -48,14 +191,14 @@ export default function EmployeeDetailPage() {
         <Button startIcon={<ArrowBack sx={{ fontSize: 16 }} />} onClick={() => navigate("/employees")} variant="text" size="small" sx={{ color: "#64748b" }}>Back</Button>
         <Box sx={{ flex: 1 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ width: 44, height: 44, fontSize: "1rem", fontWeight: 700, backgroundColor: avatarColor(e.fullName ?? ""), borderRadius: "11px" }}>{initials}</Avatar>
+            <Avatar sx={{ width: 44, height: 44, fontSize: "1rem", fontWeight: 700, backgroundColor: avatarColor(fullName), borderRadius: "11px" }}>{initials}</Avatar>
             <Box>
-              <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.02em" }}>{e.fullName}</Typography>
+              <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.02em" }}>{fullName}</Typography>
               <Typography sx={{ fontSize: "0.8125rem", color: "#64748b" }}>{e.jobTitle ?? ""} {e.department ? `· ${e.department}` : ""}</Typography>
             </Box>
           </Box>
         </Box>
-        <Chip label={e.status} color={getStatusChipColor(e.status)} />
+        <Chip label={e.isActive ? "Active" : "Inactive"} color={e.isActive ? "success" : "default"} />
         <Button variant="outlined" startIcon={<Edit sx={{ fontSize: 15 }} />} size="small" onClick={() => navigate(`/employees/${id}/edit`)} sx={{ borderRadius: "8px" }}>Edit</Button>
       </Box>
 
@@ -63,6 +206,10 @@ export default function EmployeeDetailPage() {
         <Tab label="Personal Info" />
         <Tab label="Employment" />
         <Tab label="Work Pass" />
+        <Tab label="Skills" />
+        <Tab label="Onboarding/Offboarding" />
+        <Tab label="Performance" />
+        <Tab label="Cases" />
       </Tabs>
 
       {tab === 0 && (
@@ -71,11 +218,11 @@ export default function EmployeeDetailPage() {
             <Card>
               <CardContent sx={{ p: 3 }}>
                 <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", mb: 2 }}>Identity</Typography>
-                <InfoField label="Full Name" value={e.fullName} />
-                <InfoField label="Employee ID" value={e.employeeId} />
+                <InfoField label="Full Name" value={fullName} />
+                <InfoField label="Employee Code" value={e.employeeCode} />
                 <InfoField label="Nationality" value={e.nationality} />
                 <InfoField label="Date of Birth" value={formatDate(e.dateOfBirth)} />
-                <InfoField label="Gender" value={e.gender} />
+                <InfoField label={e.identityDocType ?? "Identity Document"} value={e.identityDocNumber} />
               </CardContent>
             </Card>
           </Grid>
@@ -103,7 +250,7 @@ export default function EmployeeDetailPage() {
                 <InfoField label="Department" value={e.department} />
                 <InfoField label="Employment Type" value={e.employmentType} />
                 <InfoField label="Join Date" value={formatDate(e.joinDate)} />
-                <InfoField label="Reporting To" value={e.manager?.fullName} />
+                <InfoField label="Reporting To" value={e.manager ? `${e.manager.firstName} ${e.manager.lastName}` : undefined} />
               </CardContent>
             </Card>
           </Grid>
@@ -111,9 +258,10 @@ export default function EmployeeDetailPage() {
             <Card>
               <CardContent sx={{ p: 3 }}>
                 <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", mb: 2 }}>Compensation</Typography>
-                <InfoField label="Basic Salary" value={e.basicSalary != null ? `SGD ${e.basicSalary.toLocaleString()}` : undefined} />
-                <InfoField label="Bank Account" value={e.bankAccount} />
-                <InfoField label="CPF Account" value={e.cpfAccount} />
+                <InfoField label="Daily Rate" value={e.dailyRate != null ? `SGD ${Number(e.dailyRate).toLocaleString()}` : undefined} />
+                <InfoField label="Allowances" value={e.allowances != null ? `SGD ${Number(e.allowances).toLocaleString()}` : undefined} />
+                <InfoField label="Bank Name" value={e.bankName} />
+                <InfoField label="Bank Account No." value={e.bankAccountNo} />
               </CardContent>
             </Card>
           </Grid>
@@ -126,16 +274,27 @@ export default function EmployeeDetailPage() {
             <Card>
               <CardContent sx={{ p: 3 }}>
                 <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", mb: 2 }}>Work Pass</Typography>
-                <InfoField label="Pass Type" value={e.workPassType} />
-                <InfoField label="Pass Number" value={e.workPassNumber} />
-                <InfoField label="Issue Date" value={formatDate(e.workPassIssueDate)} />
-                <InfoField label="Expiry Date" value={formatDate(e.workPassExpiry)} />
-                <InfoField label="Status" value={e.workPassStatus} />
+                {currentWorkPass ? (
+                  <>
+                    <InfoField label="Pass Type" value={currentWorkPass.passType} />
+                    <InfoField label="Pass Number" value={currentWorkPass.passNumber} />
+                    <InfoField label="Issue Date" value={formatDate(currentWorkPass.issueDate)} />
+                    <InfoField label="Expiry Date" value={formatDate(currentWorkPass.expiryDate)} />
+                    <InfoField label="Status" value={currentWorkPass.status} />
+                  </>
+                ) : (
+                  <Typography variant="body2" sx={{ color: "#94a3b8" }}>No work pass on record.</Typography>
+                )}
               </CardContent>
             </Card>
           </Grid>
         </Grid>
       )}
+
+      {tab === 3 && id && <SkillsTab employeeId={id} />}
+      {tab === 4 && id && <ChecklistsTab employeeId={id} />}
+      {tab === 5 && id && <PerformanceTab employeeId={id} />}
+      {tab === 6 && id && <CasesTab employeeId={id} />}
     </Box>
   );
 }

@@ -63,7 +63,7 @@ function fmtDate(d: Date | string): string {
 }
 
 function drawHeader(doc: InstanceType<typeof PDFDocument>, title: string, code: string): void {
-  doc.fontSize(20).fillColor('#1976D2').text('SankoERP', 50, 50);
+  doc.fontSize(20).fillColor('#1976D2').text('Aadhirai HRM OS', 50, 50);
   doc.fontSize(10).fillColor('#666666').text('Construction & Manpower Management', 50, 75);
   doc.moveTo(50, 100).lineTo(545, 100).strokeColor('#1976D2').lineWidth(2).stroke();
 
@@ -248,6 +248,9 @@ export interface PayslipData {
   month: number;
   year: number;
   daysWorked: number;
+  paidLeaveDays?: Numeric;
+  unpaidLeaveDays?: Numeric;
+  leaveDeduction?: Numeric;
   basicPay: Numeric;
   overtimePay: Numeric;
   allowances: Numeric;
@@ -271,7 +274,7 @@ export async function generatePayslipPdf(data: PayslipData): Promise<Buffer> {
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
 
-    const orgName = data.orgName ?? 'SankoERP';
+    const orgName = data.orgName ?? 'Aadhirai HRM OS';
     const period = `${MONTH_NAMES_PDF[data.month - 1]} ${data.year}`;
 
     // Header
@@ -297,6 +300,18 @@ export async function generatePayslipPdf(data: PayslipData): Promise<Buffer> {
     doc.fontSize(10).fillColor('#1a1a1a').text(data.project.name, 300, y + 13);
     doc.fontSize(9).fillColor('#555555').text(data.project.projectCode, 300, y + 27);
     doc.text(`Days Worked: ${data.daysWorked}`, 300, y + 40);
+
+    const paidLeaveDays = Number(data.paidLeaveDays ?? 0);
+    const unpaidLeaveDays = Number(data.unpaidLeaveDays ?? 0);
+    let leaveLineY = y + 53;
+    if (paidLeaveDays > 0) {
+      doc.text(`Paid Leave: ${paidLeaveDays} day(s)`, 300, leaveLineY);
+      leaveLineY += 13;
+    }
+    if (unpaidLeaveDays > 0) {
+      doc.fillColor('#c62828').text(`Unpaid Leave: ${unpaidLeaveDays} day(s) (not paid)`, 300, leaveLineY);
+      doc.fillColor('#1a1a1a');
+    }
 
     y += 70;
     doc.moveTo(50, y).lineTo(545, y).strokeColor('#e0e0e0').lineWidth(1).stroke();
@@ -344,6 +359,14 @@ export async function generatePayslipPdf(data: PayslipData): Promise<Buffer> {
       drawRow('CPF Employer Contribution (info)', cpfER, false, '#64748b');
     } else {
       drawRow('CPF (Not Applicable)', 0, false, '#94a3b8');
+    }
+
+    const leaveDeduction = Number(data.leaveDeduction ?? 0);
+    if (leaveDeduction > 0) {
+      // Informational only — this amount is already reflected in Basic Pay
+      // above (unpaid leave days are excluded from days worked), not
+      // subtracted again here.
+      drawRow(`Unpaid Leave (${unpaidLeaveDays} day(s), already excluded from Basic Pay)`, leaveDeduction, false, '#94a3b8');
     }
 
     doc.moveTo(50, y).lineTo(545, y).strokeColor('#1976D2').lineWidth(1).stroke();

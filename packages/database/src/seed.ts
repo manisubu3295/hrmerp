@@ -1,39 +1,174 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { PERMISSIONS, ROLE_PERMISSIONS } from '@sankoerp/shared';
 
 const prisma = new PrismaClient();
+
+// System roles + their permission sets (see packages/shared/src/permissions.ts).
+// organizationId: null marks these as system-defined role templates shared
+// across all tenants, not a per-org custom role.
+async function seedRbac(): Promise<void> {
+  for (const p of PERMISSIONS) {
+    await prisma.permission.upsert({
+      where: { resource_action: { resource: p.resource, action: p.action } },
+      update: { description: p.description },
+      create: { resource: p.resource, action: p.action, description: p.description },
+    });
+  }
+
+  for (const roleKey of Object.keys(ROLE_PERMISSIONS) as Array<keyof typeof ROLE_PERMISSIONS>) {
+    const role = await prisma.role.upsert({
+      where: { id: `system-${roleKey.toLowerCase()}` },
+      update: {},
+      create: { id: `system-${roleKey.toLowerCase()}`, organizationId: null, key: roleKey, name: roleKey, isSystem: true },
+    });
+
+    for (const permKey of ROLE_PERMISSIONS[roleKey]) {
+      const [resource, action] = permKey.split(/:(.+)/); // split on first ':' only (settings:sso:update has two colons)
+      const permission = await prisma.permission.findUnique({ where: { resource_action: { resource, action } } });
+      if (!permission) continue;
+      await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },
+        update: {},
+        create: { roleId: role.id, permissionId: permission.id },
+      });
+    }
+  }
+}
+
+// Backfills a UserRoleAssignment for every user (seeded or otherwise
+// pre-existing) that doesn't already have one for their current `role`
+// field's matching system role. Safe to re-run.
+async function backfillUserRoleAssignments(): Promise<void> {
+  const users = await prisma.user.findMany();
+  for (const user of users) {
+    const roleId = `system-${user.role.toLowerCase()}`;
+    const existing = await prisma.userRoleAssignment.findFirst({ where: { userId: user.id, roleId } });
+    if (existing) continue;
+    await prisma.userRoleAssignment.create({
+      data: { userId: user.id, roleId, organizationId: user.organizationId },
+    });
+  }
+}
+
+// Phase 1 HR Core sample data: the default statutory scheme, a few sample
+// skills, and one onboarding + one offboarding checklist template so the
+// new HR Core pages have non-empty data on first run. Idempotent (upserts).
+async function seedHrCoreDefaults(org: { id: string }): Promise<void> {
+  await prisma.statutoryScheme.upsert({
+    where: { organizationId_code: { organizationId: org.id, code: 'SG_CPF' } },
+    update: {},
+    create: {
+      organizationId: org.id,
+      code: 'SG_CPF',
+      name: 'CPF (Singapore)',
+      strategy: 'SG_CPF',
+      isActive: true,
+    },
+  });
+
+  const skillNames = [
+    { name: 'Cable Splicing', category: 'Technical' },
+    { name: 'Forklift Operation', category: 'Equipment' },
+    { name: 'First Aid Certified', category: 'Safety' },
+  ];
+  for (const s of skillNames) {
+    await prisma.skillDefinition.upsert({
+      where: { organizationId_name: { organizationId: org.id, name: s.name } },
+      update: {},
+      create: { organizationId: org.id, name: s.name, category: s.category },
+    });
+  }
+
+  const onboardingTemplate = await prisma.checklistTemplate.upsert({
+    where: { id: `${org.id}-onboarding-default` },
+    update: {},
+    create: {
+      id: `${org.id}-onboarding-default`,
+      organizationId: org.id,
+      purpose: 'ONBOARDING',
+      name: 'Standard Onboarding',
+    },
+  });
+  const onboardingTasks = ['IT account setup', 'Issue equipment', 'HR orientation briefing'];
+  for (let i = 0; i < onboardingTasks.length; i++) {
+    await prisma.checklistTemplateTask.upsert({
+      where: { id: `${onboardingTemplate.id}-task-${i}` },
+      update: {},
+      create: { id: `${onboardingTemplate.id}-task-${i}`, templateId: onboardingTemplate.id, title: onboardingTasks[i]!, sortOrder: i },
+    });
+  }
+
+  const offboardingTemplate = await prisma.checklistTemplate.upsert({
+    where: { id: `${org.id}-offboarding-default` },
+    update: {},
+    create: {
+      id: `${org.id}-offboarding-default`,
+      organizationId: org.id,
+      purpose: 'OFFBOARDING',
+      name: 'Standard Offboarding',
+    },
+  });
+  const offboardingTasks = ['Return equipment', 'Revoke system access', 'Exit interview'];
+  for (let i = 0; i < offboardingTasks.length; i++) {
+    await prisma.checklistTemplateTask.upsert({
+      where: { id: `${offboardingTemplate.id}-task-${i}` },
+      update: {},
+      create: { id: `${offboardingTemplate.id}-task-${i}`, templateId: offboardingTemplate.id, title: offboardingTasks[i]!, sortOrder: i },
+    });
+  }
+}
 
 async function main() {
   console.log('🌱 Seeding database...');
 
+  // Default tenant — every seeded row below belongs to this organization
+  const org = await prisma.organization.upsert({
+    where: { code: 'DEFAULT' },
+    update: {},
+    create: {
+      code: 'DEFAULT',
+      name: 'Default Organization',
+      defaultCurrency: 'SGD',
+      locale: 'en-SG',
+      timezone: 'Asia/Singapore',
+    },
+  });
+
+  await seedRbac();
+  await seedHrCoreDefaults(org);
+
   // Admin user
   const passwordHash = await bcrypt.hash('Admin@123!', 12);
   const admin = await prisma.user.upsert({
-    where: { email: 'admin@sankoerp.com' },
+    where: { email: 'admin@aadhirai.com' },
     update: {},
     create: {
-      email: 'admin@sankoerp.com',
+      email: 'admin@aadhirai.com',
       passwordHash,
       role: 'SUPER_ADMIN',
+      organizationId: org.id,
     },
   });
 
   // Manager user
   const mgr = await prisma.user.upsert({
-    where: { email: 'manager@sankoerp.com' },
+    where: { email: 'manager@aadhirai.com' },
     update: {},
     create: {
-      email: 'manager@sankoerp.com',
+      email: 'manager@aadhirai.com',
       passwordHash: await bcrypt.hash('Manager@123!', 12),
       role: 'MANAGER',
+      organizationId: org.id,
     },
   });
 
   // Sample client
   const client = await prisma.client.upsert({
-    where: { code: 'CLI-0001' },
+    where: { organizationId_code: { organizationId: org.id, code: 'CLI-0001' } },
     update: {},
     create: {
+      organizationId: org.id,
       code: 'CLI-0001',
       name: 'Singtel Infra Solutions',
       contactName: 'John Tan',
@@ -47,22 +182,23 @@ async function main() {
 
   // Equipment categories
   const safetyCategory = await prisma.equipmentCategory.upsert({
-    where: { name: 'Safety Equipment' },
+    where: { organizationId_name: { organizationId: org.id, name: 'Safety Equipment' } },
     update: {},
-    create: { name: 'Safety Equipment', description: 'PPE and safety gear' },
+    create: { organizationId: org.id, name: 'Safety Equipment', description: 'PPE and safety gear' },
   });
 
   const toolsCategory = await prisma.equipmentCategory.upsert({
-    where: { name: 'Tools & Equipment' },
+    where: { organizationId_name: { organizationId: org.id, name: 'Tools & Equipment' } },
     update: {},
-    create: { name: 'Tools & Equipment', description: 'Electrical and mechanical tools' },
+    create: { organizationId: org.id, name: 'Tools & Equipment', description: 'Electrical and mechanical tools' },
   });
 
   // Sample employees
   const emp1 = await prisma.employee.upsert({
-    where: { employeeCode: 'EMP-0001' },
+    where: { organizationId_employeeCode: { organizationId: org.id, employeeCode: 'EMP-0001' } },
     update: {},
     create: {
+      organizationId: org.id,
       employeeCode: 'EMP-0001',
       firstName: 'Ali',
       lastName: 'Hassan',
@@ -70,16 +206,16 @@ async function main() {
       jobTitle: 'Site Supervisor',
       employmentType: 'FOREIGN_WORKER',
       dailyRate: 140,
-      cpfApplicable: false,
       joinDate: new Date('2023-01-15'),
       isActive: true,
     },
   });
 
   const emp2 = await prisma.employee.upsert({
-    where: { employeeCode: 'EMP-0002' },
+    where: { organizationId_employeeCode: { organizationId: org.id, employeeCode: 'EMP-0002' } },
     update: {},
     create: {
+      organizationId: org.id,
       employeeCode: 'EMP-0002',
       firstName: 'Ramu',
       lastName: 'Kumar',
@@ -87,7 +223,6 @@ async function main() {
       jobTitle: 'Cable Technician',
       employmentType: 'FOREIGN_WORKER',
       dailyRate: 95,
-      cpfApplicable: false,
       joinDate: new Date('2023-03-01'),
       isActive: true,
     },
@@ -95,9 +230,10 @@ async function main() {
 
   // Work passes
   await prisma.workPass.upsert({
-    where: { passNumber: 'WP-SG-2024-001' },
+    where: { organizationId_passNumber: { organizationId: org.id, passNumber: 'WP-SG-2024-001' } },
     update: {},
     create: {
+      organizationId: org.id,
       employeeId: emp1.id,
       passType: 'WORK_PERMIT',
       passNumber: 'WP-SG-2024-001',
@@ -108,9 +244,10 @@ async function main() {
   });
 
   await prisma.workPass.upsert({
-    where: { passNumber: 'WP-SG-2024-002' },
+    where: { organizationId_passNumber: { organizationId: org.id, passNumber: 'WP-SG-2024-002' } },
     update: {},
     create: {
+      organizationId: org.id,
       employeeId: emp2.id,
       passType: 'WORK_PERMIT',
       passNumber: 'WP-SG-2024-002',
@@ -122,9 +259,10 @@ async function main() {
 
   // Sample equipment items
   await prisma.equipmentItem.upsert({
-    where: { itemCode: 'ITM-0001' },
+    where: { organizationId_itemCode: { organizationId: org.id, itemCode: 'ITM-0001' } },
     update: {},
     create: {
+      organizationId: org.id,
       itemCode: 'ITM-0001',
       name: 'Safety Shoes',
       categoryId: safetyCategory.id,
@@ -138,9 +276,10 @@ async function main() {
   });
 
   await prisma.equipmentItem.upsert({
-    where: { itemCode: 'ITM-0002' },
+    where: { organizationId_itemCode: { organizationId: org.id, itemCode: 'ITM-0002' } },
     update: {},
     create: {
+      organizationId: org.id,
       itemCode: 'ITM-0002',
       name: 'Hard Hat',
       categoryId: safetyCategory.id,
@@ -154,9 +293,10 @@ async function main() {
   });
 
   await prisma.equipmentItem.upsert({
-    where: { itemCode: 'ITM-0003' },
+    where: { organizationId_itemCode: { organizationId: org.id, itemCode: 'ITM-0003' } },
     update: {},
     create: {
+      organizationId: org.id,
       itemCode: 'ITM-0003',
       name: 'Cable Tester',
       categoryId: toolsCategory.id,
@@ -172,34 +312,38 @@ async function main() {
 
   // Employee user accounts linked to emp1 and emp2
   await prisma.user.upsert({
-    where: { email: 'ali.hassan@sankoerp.com' },
+    where: { email: 'ali.hassan@aadhirai.com' },
     update: {},
     create: {
-      email: 'ali.hassan@sankoerp.com',
+      email: 'ali.hassan@aadhirai.com',
       passwordHash: await bcrypt.hash('Employee@123!', 12),
       role: 'EMPLOYEE',
+      organizationId: org.id,
       employee: { connect: { id: emp1.id } },
     },
   });
 
   await prisma.user.upsert({
-    where: { email: 'ramu.kumar@sankoerp.com' },
+    where: { email: 'ramu.kumar@aadhirai.com' },
     update: {},
     create: {
-      email: 'ramu.kumar@sankoerp.com',
+      email: 'ramu.kumar@aadhirai.com',
       passwordHash: await bcrypt.hash('Employee@123!', 12),
       role: 'EMPLOYEE',
+      organizationId: org.id,
       employee: { connect: { id: emp2.id } },
     },
   });
 
+  await backfillUserRoleAssignments();
+
   console.log('✅ Database seeded successfully!');
   console.log('');
   console.log('🔑 Login credentials:');
-  console.log('   Admin:   admin@sankoerp.com / Admin@123!');
-  console.log('   Manager: manager@sankoerp.com / Manager@123!');
-  console.log('   Employee (Ali):  ali.hassan@sankoerp.com / Employee@123!');
-  console.log('   Employee (Ramu): ramu.kumar@sankoerp.com / Employee@123!');
+  console.log('   Admin:   admin@aadhirai.com / Admin@123!');
+  console.log('   Manager: manager@aadhirai.com / Manager@123!');
+  console.log('   Employee (Ali):  ali.hassan@aadhirai.com / Employee@123!');
+  console.log('   Employee (Ramu): ramu.kumar@aadhirai.com / Employee@123!');
 }
 
 main()

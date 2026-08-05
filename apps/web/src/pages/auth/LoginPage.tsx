@@ -45,7 +45,7 @@ export default function LoginPage() {
     setServerError("");
     try {
       const res = await authApi.login(data.email, data.password);
-      setAuth(res.data.data.user, res.data.data.token);
+      setAuth(res.data.data.user, res.data.data.token, res.data.data.refreshToken);
       toast.success("Welcome back!");
       navigate("/dashboard", { replace: true });
     } catch (err: any) {
@@ -83,11 +83,11 @@ export default function LoginPage() {
               boxShadow: "0 8px 32px rgba(37,99,235,0.5)",
             }}
           >
-            <Typography sx={{ color: "white", fontWeight: 900, fontSize: "1rem", letterSpacing: "-0.02em" }}>SE</Typography>
+            <Typography sx={{ color: "white", fontWeight: 900, fontSize: "1rem", letterSpacing: "-0.02em" }}>A</Typography>
           </Box>
           <Box>
             <Typography sx={{ color: "white", fontWeight: 800, fontSize: "1.125rem", letterSpacing: "-0.02em", lineHeight: 1 }}>
-              SankoERP
+              Aadhirai HRM OS
             </Typography>
             <Typography sx={{ color: "rgba(255,255,255,0.4)", fontSize: "0.7rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>
               Enterprise Platform
@@ -161,9 +161,9 @@ export default function LoginPage() {
           {/* Mobile logo */}
           <Box sx={{ display: { xs: "flex", lg: "none" }, alignItems: "center", gap: 1.5, mb: 6, justifyContent: "center" }}>
             <Box sx={{ width: 36, height: 36, borderRadius: "9px", background: "linear-gradient(135deg, #2563eb, #1d4ed8)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(37,99,235,0.4)" }}>
-              <Typography sx={{ color: "white", fontWeight: 900, fontSize: "0.875rem" }}>SE</Typography>
+              <Typography sx={{ color: "white", fontWeight: 900, fontSize: "0.875rem" }}>A</Typography>
             </Box>
-            <Typography sx={{ fontWeight: 800, fontSize: "1.125rem", color: "#0f172a" }}>SankoERP</Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: "1.125rem", color: "#0f172a" }}>Aadhirai HRM OS</Typography>
           </Box>
 
           {/* Card */}
@@ -181,7 +181,7 @@ export default function LoginPage() {
                 Welcome back
               </Typography>
               <Typography sx={{ color: "#64748b", fontSize: "0.9rem" }}>
-                Sign in to your SankoERP dashboard
+                Sign in to your Aadhirai HRM OS dashboard
               </Typography>
             </Box>
 
@@ -197,7 +197,7 @@ export default function LoginPage() {
                 <TextField
                   type="email"
                   fullWidth
-                  placeholder="admin@sankoerp.com"
+                  placeholder="admin@aadhirai.com"
                   {...register("email")}
                   error={!!errors.email}
                   helperText={errors.email?.message}
@@ -276,7 +276,7 @@ export default function LoginPage() {
           </Box>
 
           <Typography sx={{ textAlign: "center", mt: 3, fontSize: "0.75rem", color: "#94a3b8" }}>
-            SankoERP &copy; {new Date().getFullYear()} &bull; Secure enterprise platform
+            Aadhirai HRM OS &copy; {new Date().getFullYear()} &bull; Secure enterprise platform
           </Typography>
         </Box>
       </Box>

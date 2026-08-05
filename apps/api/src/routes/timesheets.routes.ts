@@ -3,7 +3,7 @@ import { parse } from 'csv-parse/sync';
 import prisma from '../lib/prisma';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 import { AppError } from '../middleware/error.middleware';
-import { requireRoles } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/auth.middleware';
 import { upload } from '../lib/upload';
 import { UserRole } from '@sankoerp/shared';
 import { AttendanceStatus, Prisma } from '@prisma/client';
@@ -131,8 +131,11 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
           projectId: projectId ?? null as unknown as string,
         },
       },
-      update: { status, hoursWorked, overtimeHours, dailyWage, overtimePay, notes },
+      // Re-submitting (e.g. after a REJECTED decision) re-enters the approval
+      // queue rather than silently keeping a stale decision on new data.
+      update: { status, hoursWorked, overtimeHours, dailyWage, overtimePay, notes, approvalStatus: 'PENDING', approvedById: null, approvedAt: null, rejectionReason: null },
       create: {
+        organizationId: req.organizationId as string,
         employeeId: targetEmployeeId,
         projectId: projectId ?? undefined,
         date: new Date(date),
@@ -201,12 +204,63 @@ router.patch('/:id', async (req: Request, res: Response, next: NextFunction) => 
     if (isEmployee) {
       const empId = await resolveEmployeeId(req.user!.sub);
       if (existing.employeeId !== empId) throw new AppError(403, 'Access denied');
+      if (existing.approvalStatus === 'APPROVED') {
+        throw new AppError(400, 'This entry is already approved and can no longer be edited');
+      }
     }
 
     const { status, hoursWorked, overtimeHours, notes } = req.body;
     const updated = await prisma.attendance.update({
       where: { id: req.params['id'] },
-      data: { status, hoursWorked, overtimeHours, notes },
+      data: {
+        status, hoursWorked, overtimeHours, notes,
+        // A re-submitted REJECTED entry re-enters the approval queue.
+        ...(isEmployee && existing.approvalStatus === 'REJECTED'
+          ? { approvalStatus: 'PENDING' as const, approvedById: null, approvedAt: null, rejectionReason: null }
+          : {}),
+      },
+      include: {
+        employee: { select: { id: true, firstName: true, lastName: true } },
+        project: { select: { id: true, projectCode: true, name: true } },
+      },
+    });
+    res.json({ success: true, data: updated });
+  } catch (e) { next(e); }
+});
+
+// ─── PATCH /timesheets/:id/approve ────────────────────────────────────────────
+router.patch('/:id/approve', requirePermission('timesheet:approve'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const entry = await prisma.attendance.findUnique({ where: { id: req.params['id'] } });
+    if (!entry) throw new AppError(404, 'Timesheet entry not found');
+    if (entry.approvalStatus !== 'PENDING') throw new AppError(400, 'Only pending timesheet entries can be actioned');
+
+    const updated = await prisma.attendance.update({
+      where: { id: req.params['id'] },
+      // approvedById stores the User id of the approver (req.user.sub), not
+      // an Employee id — there's no FK on this column, so callers reading it
+      // back must resolve it against the users table if they need a name.
+      data: { approvalStatus: 'APPROVED', approvedById: req.user!.sub, approvedAt: new Date(), rejectionReason: null },
+      include: {
+        employee: { select: { id: true, firstName: true, lastName: true } },
+        project: { select: { id: true, projectCode: true, name: true } },
+      },
+    });
+    res.json({ success: true, data: updated });
+  } catch (e) { next(e); }
+});
+
+// ─── PATCH /timesheets/:id/reject ─────────────────────────────────────────────
+router.patch('/:id/reject', requirePermission('timesheet:approve'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { rejectionReason } = req.body as { rejectionReason?: string };
+    const entry = await prisma.attendance.findUnique({ where: { id: req.params['id'] } });
+    if (!entry) throw new AppError(404, 'Timesheet entry not found');
+    if (entry.approvalStatus !== 'PENDING') throw new AppError(400, 'Only pending timesheet entries can be actioned');
+
+    const updated = await prisma.attendance.update({
+      where: { id: req.params['id'] },
+      data: { approvalStatus: 'REJECTED', approvedById: req.user!.sub, approvedAt: new Date(), rejectionReason: rejectionReason ?? null },
       include: {
         employee: { select: { id: true, firstName: true, lastName: true } },
         project: { select: { id: true, projectCode: true, name: true } },
@@ -217,7 +271,7 @@ router.patch('/:id', async (req: Request, res: Response, next: NextFunction) => 
 });
 
 // ─── DELETE /timesheets/:id ───────────────────────────────────────────────────
-router.delete('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/:id', requirePermission('timesheet:delete'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.attendance.findUnique({ where: { id: req.params['id'] } });
     if (!existing) throw new AppError(404, 'Timesheet entry not found');
@@ -230,7 +284,7 @@ router.delete('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRol
 // CSV columns: employeeCode,projectCode,date,status,hoursWorked,overtimeHours,notes
 router.post(
   '/bulk-import',
-  requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER),
+  requirePermission('timesheet:bulk_import'),
   upload.single('file') as unknown as RequestHandler,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -306,6 +360,7 @@ router.post(
             },
             update: { status: statusVal, hoursWorked, overtimeHours, dailyWage, overtimePay, notes: row['notes'] },
             create: {
+              organizationId: req.organizationId as string,
               employeeId: employee.id,
               projectId,
               date: new Date(dateVal),
@@ -328,7 +383,13 @@ router.post(
 
       res.status(201).json({
         success: true,
-        data: { imported: created, skipped, total: records.length, results },
+        data: {
+          imported: created,
+          skipped,
+          total: records.length,
+          results,
+          message: created > 0 ? `${created} entr${created === 1 ? 'y' : 'ies'} imported as PENDING approval — they will not count toward payroll until approved.` : undefined,
+        },
       });
     } catch (e) { next(e); }
   },

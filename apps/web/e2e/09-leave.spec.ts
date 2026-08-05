@@ -211,19 +211,23 @@ test.describe('Leave Navigation', () => {
     await login(page);
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
-    // Sidebar uses Box with onClick, not <a> tags — find by text
-    await expect(page.getByText('Leave').first()).toBeVisible({ timeout: 8000 });
+    // Sidebar uses NavLink — find by role or text
+    await expect(page.getByRole('link', { name: /^leave$/i }).first()).toBeVisible({ timeout: 8000 });
   });
 
   test('clicking Leave in sidebar navigates correctly', async ({ page }) => {
     await login(page);
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
-    // Click the Leave nav item (sidebar uses onClick Box, not <a>)
-    await page.getByText('Leave').first().click();
+    await page.getByRole('link', { name: /^leave$/i }).first().click();
     await page.waitForURL(/\/leave/, { timeout: 8000 });
     expect(page.url()).toMatch(/\/leave/);
   });
+});
+
+// This test must run without pre-loaded auth state
+test.describe('Leave Navigation — Unauthenticated', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
 
   test('unauthenticated user is redirected from /leave', async ({ page }) => {
     await page.goto('/leave');

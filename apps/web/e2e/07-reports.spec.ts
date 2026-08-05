@@ -9,6 +9,6 @@ test.describe('Reports Module', () => {
   });
 
   test('displays reports page', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /reports/i }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Reports').first()).toBeVisible({ timeout: 10000 });
   });
 });

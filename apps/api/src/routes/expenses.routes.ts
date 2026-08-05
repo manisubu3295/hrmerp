@@ -2,8 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 import { AppError } from '../middleware/error.middleware';
-import { requireRoles } from '../middleware/auth.middleware';
-import { UserRole, ExpenseStatus, ExpenseCategory } from '@sankoerp/shared';
+import { requirePermission } from '../middleware/auth.middleware';
+import { ExpenseStatus, ExpenseCategory } from '@sankoerp/shared';
 import { Prisma } from '@prisma/client';
 import { emitEvent } from '../lib/events';
 
@@ -21,7 +21,7 @@ async function checkBudget(projectId: string) {
   const pct = total / Number(project.quotedBudget);
   if (pct >= 0.8) {
     emitEvent('project.budget.threshold', {
-      projectId, projectCode: project.projectCode, usedPercent: Math.round(pct * 100),
+      organizationId: project.organizationId, projectId, projectCode: project.projectCode, usedPercent: Math.round(pct * 100),
     });
   }
 }
@@ -69,6 +69,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
 
     const expense = await prisma.expense.create({
       data: {
+        organizationId: req.organizationId as string,
         expenseCode,
         projectId: dto.projectId,
         submittedById: dto.submittedById,
@@ -106,7 +107,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // PATCH /expenses/:id/approve
-router.patch('/:id/approve', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id/approve', requirePermission('expense:approve'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const expense = await prisma.expense.findUnique({ where: { id: req.params['id'] } });
     if (!expense) throw new AppError(404, `Expense ${req.params['id']} not found`);
@@ -121,7 +122,7 @@ router.patch('/:id/approve', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, 
 });
 
 // PATCH /expenses/:id/reject
-router.patch('/:id/reject', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id/reject', requirePermission('expense:approve'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const expense = await prisma.expense.findUnique({ where: { id: req.params['id'] } });
     if (!expense) throw new AppError(404, `Expense ${req.params['id']} not found`);

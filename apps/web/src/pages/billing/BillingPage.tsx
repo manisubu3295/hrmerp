@@ -7,7 +7,7 @@ import {
   Pagination, InputAdornment, Select, MenuItem, FormControl, InputLabel,
   CircularProgress, IconButton, Menu, Divider, LinearProgress,
 } from "@mui/material";
-import { Add, Search, Receipt, MoreHoriz, Edit, Visibility } from "@mui/icons-material";
+import { Add, Search, Receipt, MoreHoriz, Visibility } from "@mui/icons-material";
 import { billingApi } from "@/lib/api";
 import { formatDate, getStatusChipColor, formatCurrency } from "@/lib/utils";
 
@@ -46,10 +46,6 @@ function RowMenu({ invoiceId }: { invoiceId: string }) {
         <MenuItem onClick={() => { setAnchor(null); navigate(`/billing/${invoiceId}`); }}
           sx={{ fontSize: "0.875rem", gap: 1.5, py: 1 }}>
           <Visibility sx={{ fontSize: 16, color: "#64748b" }} /> View details
-        </MenuItem>
-        <MenuItem onClick={() => { setAnchor(null); navigate(`/billing/${invoiceId}/edit`); }}
-          sx={{ fontSize: "0.875rem", gap: 1.5, py: 1 }}>
-          <Edit sx={{ fontSize: 16, color: "#64748b" }} /> Edit
         </MenuItem>
       </Menu>
     </>
@@ -148,7 +144,7 @@ export default function BillingPage() {
                         <Receipt sx={{ fontSize: 17, color: isOverdue(inv) ? "#b91c1c" : "#2563eb" }} />
                       </Box>
                       <Box>
-                        <Typography sx={{ fontWeight: 600, fontSize: "0.875rem", color: "#0f172a" }}>{inv.invoiceNumber}</Typography>
+                        <Typography sx={{ fontWeight: 600, fontSize: "0.875rem", color: "#0f172a" }}>{inv.invoiceCode}</Typography>
                         <Typography sx={{ fontSize: "0.75rem", color: "#94a3b8" }}>{inv.project?.name ?? ""}</Typography>
                       </Box>
                     </Box>

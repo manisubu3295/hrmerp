@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Box } from '@mui/material';
-import { Sidebar } from './Sidebar';
+import { Sidebar } from './sidebar';
 import { AppBar } from './AppBar';
 import { SIDEBAR_WIDTH } from '@/theme';
 

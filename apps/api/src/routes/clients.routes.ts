@@ -2,13 +2,28 @@ import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 import { AppError } from '../middleware/error.middleware';
-import { requireRoles } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validate';
 import { createClientSchema, updateClientSchema } from '../schemas/clients.schema';
-import { UserRole } from '@sankoerp/shared';
 import { Prisma } from '@prisma/client';
+import { nextSequentialCode, withCodeRetry } from '../lib/codes';
 
 const router = Router();
+
+async function generateClientCode(): Promise<string> {
+  return nextSequentialCode({
+    prefix: 'CLI-',
+    padLength: 4,
+    findLatestCode: async (prefix) => {
+      const row = await prisma.client.findFirst({
+        where: { code: { startsWith: prefix } },
+        orderBy: { code: 'desc' },
+        select: { code: true },
+      });
+      return row?.code ?? null;
+    },
+  });
+}
 
 // GET /clients
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
@@ -32,24 +47,26 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // POST /clients
-router.post('/', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), validate(createClientSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', requirePermission('client:create'), validate(createClientSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const count = await prisma.client.count();
-    const code = `CLI-${String(count + 1).padStart(4, '0')}`;
     const { name, contactPerson, email, phone, address, registrationNumber, industry, uen, contactName, contactEmail, contactPhone, gstRegistered, creditTermDays } = req.body;
-    const client = await prisma.client.create({
-      data: {
-        code,
-        name,
-        contactName: contactName ?? contactPerson,
-        contactEmail: contactEmail ?? email,
-        contactPhone: contactPhone ?? phone,
-        address,
-        uen: uen ?? registrationNumber,
-        gstRegistered: gstRegistered ?? false,
-        creditTermDays: creditTermDays ?? 30,
-      },
-    });
+    const client = await withCodeRetry(async () => {
+      const code = await generateClientCode();
+      return prisma.client.create({
+        data: {
+          organizationId: req.organizationId as string,
+          code,
+          name,
+          contactName: contactName ?? contactPerson,
+          contactEmail: contactEmail ?? email,
+          contactPhone: contactPhone ?? phone,
+          address,
+          uen: uen ?? registrationNumber,
+          gstRegistered: gstRegistered ?? false,
+          creditTermDays: creditTermDays ?? 30,
+        },
+      });
+    }, 'code');
     res.status(201).json({ success: true, data: client });
   } catch (e) { next(e); }
 });
@@ -70,7 +87,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // PATCH /clients/:id
-router.patch('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), validate(updateClientSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id', requirePermission('client:update'), validate(updateClientSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.client.findUnique({ where: { id: req.params['id'] } });
     if (!existing) throw new AppError(404, `Client ${req.params['id']} not found`);

@@ -6,11 +6,14 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import cron from 'node-cron';
-import prisma from './lib/prisma';
+import prisma, { prismaUnscoped } from './lib/prisma';
 import { jwtMiddleware } from './middleware/auth.middleware';
+import { tenantMiddleware } from './middleware/tenant.middleware';
 import { errorHandler, notFound } from './middleware/error.middleware';
 import { auditMiddleware } from './middleware/audit.middleware';
 import { checkWorkPassExpiries } from './routes/compliance.routes';
+import { checkEquipmentMaintenanceDue } from './routes/equipment.routes';
+import { emitEvent } from './lib/events';
 
 import authRouter from './routes/auth.routes';
 import clientsRouter from './routes/clients.routes';
@@ -32,6 +35,14 @@ import uploadRouter from './routes/upload.routes';
 import payrollRouter from './routes/payroll.routes';
 import settingsRouter from './routes/settings.routes';
 import suppliersRouter from './routes/suppliers.routes';
+import customFieldsRouter from './routes/custom-fields.routes';
+import approvalChainsRouter from './routes/approval-chains.routes';
+import webhooksRouter from './routes/webhooks.routes';
+import recruitmentRouter from './routes/recruitment.routes';
+import checklistsRouter from './routes/checklists.routes';
+import skillsRouter from './routes/skills.routes';
+import performanceRouter from './routes/performance.routes';
+import employeeCasesRouter from './routes/employee-cases.routes';
 
 const app = express();
 
@@ -51,6 +62,9 @@ app.use(globalRateLimit as unknown as RequestHandler);
 
 // JWT authentication (validates all requests, public routes are whitelisted inside)
 app.use(jwtMiddleware);
+
+// Tenant context (org-scoping for the rest of the request pipeline)
+app.use(tenantMiddleware);
 
 // Audit logging (fires on mutating requests after auth)
 app.use(auditMiddleware);
@@ -80,6 +94,14 @@ app.use(`${API}/upload`, uploadRouter);
 app.use(`${API}/payroll`, payrollRouter);
 app.use(`${API}/settings`, settingsRouter);
 app.use(`${API}/suppliers`, suppliersRouter);
+app.use(`${API}/custom-fields`, customFieldsRouter);
+app.use(`${API}/approval-chains`, approvalChainsRouter);
+app.use(`${API}/webhooks`, webhooksRouter);
+app.use(`${API}/recruitment`, recruitmentRouter);
+app.use(`${API}/checklists`, checklistsRouter);
+app.use(`${API}/skills`, skillsRouter);
+app.use(`${API}/performance`, performanceRouter);
+app.use(`${API}/employee-cases`, employeeCasesRouter);
 
 // Cron: check work pass expiries every day at 09:00
 cron.schedule('0 9 * * *', () => {
@@ -87,9 +109,10 @@ cron.schedule('0 9 * * *', () => {
 });
 
 // Cron: mark SENT/PARTIAL invoices past due date as OVERDUE — runs daily at 08:00
+// Uses prismaUnscoped: this is a cross-tenant system job, not a per-request call.
 cron.schedule('0 8 * * *', async () => {
   try {
-    const result = await prisma.invoice.updateMany({
+    const result = await prismaUnscoped.invoice.updateMany({
       where: {
         status: { in: ['SENT', 'PARTIALLY_PAID'] },
         dueDate: { lt: new Date() },
@@ -105,18 +128,36 @@ cron.schedule('0 8 * * *', async () => {
 });
 
 // Cron: low equipment stock alert — runs daily at 08:30
+// Uses prismaUnscoped: this is a cross-tenant system job, not a per-request call.
 cron.schedule('30 8 * * *', async () => {
   try {
-    const lowStock = await prisma.equipmentItem.findMany({
-      where: { availableQuantity: { lte: 2 } },
-      select: { id: true, name: true, availableQuantity: true },
+    const items = await prismaUnscoped.equipmentItem.findMany({
+      where: { isActive: true, trackingMode: 'BULK' },
+      select: { id: true, organizationId: true, name: true, minStockLevel: true },
     });
-    if (lowStock.length > 0) {
-      console.log(`[cron] Low stock alert — ${lowStock.length} item(s): ${lowStock.map((e: { name: string; availableQuantity: number }) => `${e.name}(${e.availableQuantity})`).join(', ')}`);
+    const stocks = await prismaUnscoped.warehouseStock.findMany({ select: { itemId: true, quantityOnHand: true } });
+    const onHandByItem = new Map<string, number>();
+    for (const s of stocks) onHandByItem.set(s.itemId, (onHandByItem.get(s.itemId) ?? 0) + s.quantityOnHand);
+
+    let alerted = 0;
+    for (const item of items) {
+      const onHand = onHandByItem.get(item.id) ?? 0;
+      if (onHand > item.minStockLevel) continue;
+      alerted++;
+      emitEvent('inventory.low_stock', {
+        organizationId: item.organizationId, itemId: item.id, itemName: item.name,
+        availableQuantity: onHand, minStockLevel: item.minStockLevel,
+      });
     }
+    if (alerted > 0) console.log(`[cron] Low stock alert — ${alerted} item(s)`);
   } catch (err) {
     console.error('[cron] Low stock check failed:', err);
   }
+});
+
+// Cron: equipment/asset maintenance due — runs daily at 09:15
+cron.schedule('15 9 * * *', () => {
+  checkEquipmentMaintenanceDue().catch(console.error);
 });
 
 // Error handling
@@ -128,7 +169,7 @@ const PORT = Number(process.env['PORT'] ?? 4000);
 prisma.$connect()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`SankoERP API running on http://localhost:${PORT}/api/v1`);
+      console.log(`Aadhirai HRM OS API running on http://localhost:${PORT}/api/v1`);
     });
   })
   .catch((err) => {

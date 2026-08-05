@@ -61,12 +61,24 @@ export default function PayrollPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? "Failed to update"),
   });
 
+  const { data: runsData, isLoading: runsLoading } = useQuery({
+    queryKey: ["payroll-runs", year],
+    queryFn: () => payrollApi.getRuns({ year }),
+  });
+  const runs: any[] = Array.isArray(runsData?.data?.data) ? runsData.data.data : [];
+
+  const markRunPaidMut = useMutation({
+    mutationFn: (id: string) => payrollApi.markRunPaid(id),
+    onSuccess: () => { toast.success("Payroll run marked as paid"); qc.invalidateQueries({ queryKey: ["payroll-runs"] }); qc.invalidateQueries({ queryKey: ["payroll-list"] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? "Failed to mark run as paid"),
+  });
+
   const displayRecords = records.length > 0 ? records : (runResult ?? []);
 
   // Totals
-  const totalNetPayable = displayRecords.reduce((s, r) => s + Number(r.netPayable ?? r.totalAmount ?? 0), 0);
+  const totalNetPayable = displayRecords.reduce((s, r) => s + Number(r.totalPayable ?? 0), 0);
   const totalCpfEr = displayRecords.reduce((s, r) => s + Number(r.cpfEmployer ?? 0), 0);
-  const totalCostToCompany = displayRecords.reduce((s, r) => s + Number(r.costToCompany ?? r.netPayable ?? 0) + Number(r.cpfEmployer ?? 0), 0);
+  const totalCostToCompany = displayRecords.reduce((s, r) => s + Number(r.totalCostToCompany ?? 0), 0);
 
   return (
     <Box>
@@ -190,6 +202,9 @@ export default function PayrollPage() {
                 }}>
                   <TableCell>Employee</TableCell>
                   <TableCell align="right">Days</TableCell>
+                  <TableCell align="right">Paid Lv</TableCell>
+                  <TableCell align="right">Unpaid Lv</TableCell>
+                  <TableCell align="right">Leave Deduct.</TableCell>
                   <TableCell align="right">Basic Pay</TableCell>
                   <TableCell align="right">OT Pay</TableCell>
                   <TableCell align="right">Allowances</TableCell>
@@ -216,13 +231,18 @@ export default function PayrollPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="right">{r.daysWorked ?? "—"}</TableCell>
+                    <TableCell align="right">{Number(r.paidLeaveDays ?? 0) || "—"}</TableCell>
+                    <TableCell align="right">{Number(r.unpaidLeaveDays ?? 0) || "—"}</TableCell>
+                    <TableCell align="right" sx={{ color: Number(r.leaveDeduction ?? 0) > 0 ? "#dc2626" : undefined }}>
+                      {Number(r.leaveDeduction ?? 0) > 0 ? fmt(r.leaveDeduction) : "—"}
+                    </TableCell>
                     <TableCell align="right">{fmt(r.basicPay)}</TableCell>
                     <TableCell align="right">{fmt(r.overtimePay)}</TableCell>
                     <TableCell align="right">{fmt(r.allowances)}</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600 }}>{fmt(r.grossPay ?? (Number(r.basicPay ?? 0) + Number(r.overtimePay ?? 0) + Number(r.allowances ?? 0)))}</TableCell>
                     <TableCell align="right" sx={{ color: "#dc2626" }}>{fmt(r.cpfEmployee)}</TableCell>
                     <TableCell align="right" sx={{ color: "#d97706" }}>{fmt(r.cpfEmployer)}</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, color: "#16a34a" }}>{fmt(r.netPayable ?? r.totalAmount)}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, color: "#16a34a" }}>{fmt(r.totalPayable)}</TableCell>
                     <TableCell>
                       {r.status === "PAID" ? (
                         <Chip icon={<CheckCircle />} label="Paid" color="success" size="small" sx={{ fontWeight: 700 }} />
@@ -255,7 +275,7 @@ export default function PayrollPage() {
 
                 {/* Totals row */}
                 <TableRow sx={{ background: "#f8fafc", "& td": { fontWeight: 700, fontSize: "0.8125rem", borderTop: "2px solid #e2e8f0" } }}>
-                  <TableCell colSpan={8} sx={{ color: "#0f172a" }}>Totals</TableCell>
+                  <TableCell colSpan={11} sx={{ color: "#0f172a" }}>Totals</TableCell>
                   <TableCell align="right" sx={{ color: "#16a34a", fontSize: "0.9rem !important" }}>{fmt(totalNetPayable)}</TableCell>
                   <TableCell colSpan={2} sx={{ color: "#64748b", fontSize: "0.75rem !important", fontWeight: 400 }}>
                     Cost to company: <strong style={{ color: "#0f172a" }}>{fmt(totalCostToCompany)}</strong>
@@ -267,6 +287,57 @@ export default function PayrollPage() {
           </Box>
         </Card>
       )}
+
+      {/* Payroll Runs */}
+      <Card elevation={0} sx={{ border: "1px solid #e2e8f0", borderRadius: "14px", mt: 3 }}>
+        <Box sx={{ px: 3, py: 2 }}>
+          <Typography sx={{ fontWeight: 700, color: "#0f172a" }}>Payroll Runs — {year}</Typography>
+          <Typography sx={{ fontSize: "0.8125rem", color: "#94a3b8" }}>Batches generated by "Run Payroll", groupable for bulk pay-out</Typography>
+        </Box>
+        <Divider />
+        {runsLoading ? (
+          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}><CircularProgress size={24} /></Box>
+        ) : runs.length === 0 ? (
+          <Box sx={{ py: 4, textAlign: "center" }}><Typography sx={{ color: "#94a3b8", fontSize: "0.875rem" }}>No payroll runs yet</Typography></Box>
+        ) : (
+          <Box sx={{ overflowX: "auto" }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ "& th": { fontWeight: 700, fontSize: "0.75rem", color: "#64748b", background: "#f8fafc", textTransform: "uppercase" } }}>
+                  <TableCell>Run Code</TableCell><TableCell>Period</TableCell><TableCell>Project</TableCell>
+                  <TableCell align="right">Records</TableCell><TableCell align="right">Total Payable</TableCell>
+                  <TableCell align="right">Cost to Company</TableCell><TableCell>Status</TableCell><TableCell align="center">Action</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {runs.map((r: any) => (
+                  <TableRow key={r.id} sx={{ "& td": { fontSize: "0.8125rem" } }}>
+                    <TableCell sx={{ fontWeight: 600, color: "#2563eb" }}>{r.runCode}</TableCell>
+                    <TableCell>{monthNames[r.month - 1]} {r.year}</TableCell>
+                    <TableCell>{r.project ? `${r.project.projectCode} — ${r.project.name}` : "All projects"}</TableCell>
+                    <TableCell align="right">{r.recordCount}</TableCell>
+                    <TableCell align="right">{fmt(r.totalPayable)}</TableCell>
+                    <TableCell align="right">{fmt(r.totalCostToCompany)}</TableCell>
+                    <TableCell>
+                      {r.status === "PAID"
+                        ? <Chip icon={<CheckCircle />} label="Paid" color="success" size="small" sx={{ fontWeight: 700 }} />
+                        : <Chip label="Completed" color="warning" size="small" variant="outlined" sx={{ fontWeight: 700 }} />}
+                    </TableCell>
+                    <TableCell align="center">
+                      {r.status !== "PAID" && (
+                        <Button size="small" variant="outlined" disabled={markRunPaidMut.isPending} onClick={() => markRunPaidMut.mutate(r.id)}
+                          sx={{ borderRadius: "8px", textTransform: "none", fontSize: "0.75rem", fontWeight: 600, borderColor: "#22c55e", color: "#16a34a" }}>
+                          Mark Run Paid
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+      </Card>
     </Box>
   );
 }

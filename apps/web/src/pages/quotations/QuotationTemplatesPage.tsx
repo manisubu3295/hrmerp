@@ -350,7 +350,7 @@ export default function QuotationTemplatesPage() {
             <Lock sx={{ fontSize: 16, color: "#94a3b8" }} />
             <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.9375rem" }}>Built-in Templates</Typography>
           </Box>
-          <Typography sx={{ fontSize: "0.8125rem", color: "#94a3b8" }}>Standard templates included with SankoERP — read-only</Typography>
+          <Typography sx={{ fontSize: "0.8125rem", color: "#94a3b8" }}>Standard templates included with Aadhirai HRM OS — read-only</Typography>
         </Box>
         <Divider />
         <Box sx={{ p: 3 }}>

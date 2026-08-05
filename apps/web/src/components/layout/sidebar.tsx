@@ -1,4 +1,4 @@
-﻿import { useLocation, useNavigate } from "react-router-dom";
+﻿import { useLocation, NavLink, useNavigate } from "react-router-dom";
 import {
   Box, Typography, Avatar, Divider, Tooltip, Drawer,
 } from "@mui/material";
@@ -24,6 +24,15 @@ import {
   ManageAccounts,
   AccountCircle,
   LocalShipping,
+  WorkOutline,
+  HowToReg,
+  ExitToApp,
+  Star,
+  TrendingUp,
+  TrendingDown,
+  SupportAgent,
+  Warehouse,
+  Devices,
 } from "@mui/icons-material";
 import { useAuthStore } from "@/store/auth.store";
 import { SIDEBAR_WIDTH } from "@/theme";
@@ -40,6 +49,7 @@ const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       { href: "/dashboard",  label: "Dashboard",  icon: DashboardIcon },
       { href: "/projects",   label: "Projects",   icon: FolderOpen, roles: [...MGMT, 'SUPERVISOR'] },
       { href: "/employees",  label: "Employees",  icon: People,      roles: MGMT },
+      { href: "/recruitment", label: "Recruitment", icon: WorkOutline, roles: MGMT },
       { href: "/clients",    label: "Clients",    icon: Business,    roles: MGMT },
     ],
   },
@@ -53,7 +63,16 @@ const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       { href: "/calendar",            label: "Calendar",   icon: CalendarMonth },
       { href: "/payroll",             label: "Payroll",    icon: AccountBalance, roles: MGMT },
       { href: "/payroll/my-payslips", label: "My Payslips",icon: AccountBalance, roles: ['EMPLOYEE', 'SUPERVISOR'] },
+      { href: "/onboarding",          label: "Onboarding", icon: HowToReg,       roles: MGMT },
+      { href: "/offboarding",         label: "Offboarding",icon: ExitToApp,      roles: MGMT },
+      { href: "/skills",              label: "Skills",     icon: Star },
+      { href: "/performance",         label: "Performance",icon: TrendingUp,     roles: MGMT },
+      { href: "/performance/my",      label: "My Reviews", icon: TrendingUp,     roles: ['EMPLOYEE', 'SUPERVISOR'] },
+      { href: "/employee-cases",      label: "Employee Cases", icon: SupportAgent },
       { href: "/equipment",           label: "Equipment",  icon: Build,          roles: MGMT },
+      { href: "/equipment/warehouses", label: "Warehouses", icon: Warehouse,     roles: MGMT },
+      { href: "/equipment/asset-units", label: "Asset Units", icon: Devices,     roles: MGMT },
+      { href: "/equipment/depreciation", label: "Depreciation", icon: TrendingDown, roles: MGMT },
       { href: "/suppliers",            label: "Suppliers",  icon: LocalShipping,  roles: MGMT },
       { href: "/billing",             label: "Billing",    icon: CreditCard,     roles: MGMT },
     ],
@@ -131,12 +150,12 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose
             }}
           >
             <Typography sx={{ color: "white", fontWeight: 900, fontSize: "0.9375rem", letterSpacing: "-0.02em" }}>
-              SE
+              A
             </Typography>
           </Box>
           <Box>
             <Typography sx={{ color: "white", fontWeight: 800, fontSize: "0.9375rem", letterSpacing: "-0.02em", lineHeight: 1.2 }}>
-              SankoERP
+              Aadhirai HRM OS
             </Typography>
             <Typography sx={{ color: "rgba(255,255,255,0.35)", fontSize: "0.65rem", fontWeight: 500, letterSpacing: "0.04em", textTransform: "uppercase" }}>
               Enterprise Platform
@@ -166,38 +185,43 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose
               const isActive = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
               return (
                 <Tooltip key={href} title="" placement="right">
-                  <Box
-                    onClick={() => handleNav(href)}
-                    sx={{
-                      display: "flex", alignItems: "center", gap: 2,
-                      px: 1.5, py: 1, borderRadius: "9px", mb: 0.25,
-                      cursor: "pointer",
-                      position: "relative",
-                      backgroundColor: isActive ? "rgba(37,99,235,0.2)" : "transparent",
-                      color: isActive ? "#93c5fd" : "rgba(255,255,255,0.5)",
-                      transition: "all 0.15s ease",
-                      "&:hover": {
-                        backgroundColor: isActive ? "rgba(37,99,235,0.22)" : "rgba(255,255,255,0.06)",
-                        color: isActive ? "#93c5fd" : "rgba(255,255,255,0.85)",
-                      },
-                      ...(isActive && {
-                        "&::before": {
-                          content: '""', position: "absolute", left: 0, top: "25%", bottom: "25%",
-                          width: "3px", borderRadius: "0 3px 3px 0",
-                          backgroundColor: "#3b82f6",
-                          marginLeft: "-8px",
-                        },
-                      }),
-                    }}
+                  <NavLink
+                    to={href}
+                    onClick={onClose}
+                    style={{ textDecoration: "none", display: "block" }}
                   >
-                    <Icon sx={{ fontSize: 17, flexShrink: 0 }} />
-                    <Typography sx={{ fontSize: "0.8438rem", fontWeight: isActive ? 600 : 400, lineHeight: 1, flex: 1 }}>
-                      {label}
-                    </Typography>
-                    {isActive && (
-                      <KeyboardArrowRight sx={{ fontSize: 14, opacity: 0.5 }} />
-                    )}
-                  </Box>
+                    <Box
+                      sx={{
+                        display: "flex", alignItems: "center", gap: 2,
+                        px: 1.5, py: 1, borderRadius: "9px", mb: 0.25,
+                        cursor: "pointer",
+                        position: "relative",
+                        backgroundColor: isActive ? "rgba(37,99,235,0.2)" : "transparent",
+                        color: isActive ? "#93c5fd" : "rgba(255,255,255,0.5)",
+                        transition: "all 0.15s ease",
+                        "&:hover": {
+                          backgroundColor: isActive ? "rgba(37,99,235,0.22)" : "rgba(255,255,255,0.06)",
+                          color: isActive ? "#93c5fd" : "rgba(255,255,255,0.85)",
+                        },
+                        ...(isActive && {
+                          "&::before": {
+                            content: '""', position: "absolute", left: 0, top: "25%", bottom: "25%",
+                            width: "3px", borderRadius: "0 3px 3px 0",
+                            backgroundColor: "#3b82f6",
+                            marginLeft: "-8px",
+                          },
+                        }),
+                      }}
+                    >
+                      <Icon sx={{ fontSize: 17, flexShrink: 0 }} />
+                      <Typography sx={{ fontSize: "0.8438rem", fontWeight: isActive ? 600 : 400, lineHeight: 1, flex: 1 }}>
+                        {label}
+                      </Typography>
+                      {isActive && (
+                        <KeyboardArrowRight sx={{ fontSize: 14, opacity: 0.5 }} />
+                      )}
+                    </Box>
+                  </NavLink>
                 </Tooltip>
               );
             })}

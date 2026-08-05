@@ -6,7 +6,8 @@ export const createEmployeeSchema = z.object({
   email: z.string().email().optional().nullable(),
   phone: z.string().optional().nullable(),
   nationality: z.string().optional().nullable(),
-  nricOrFin: z.string().optional().nullable(),
+  identityDocType: z.string().optional().nullable(),
+  identityDocNumber: z.string().optional().nullable(),
   dateOfBirth: z.string().optional().nullable(),
   employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'FOREIGN_WORKER']).optional().default('FULL_TIME'),
   jobTitle: z.string().optional().nullable(),
@@ -16,28 +17,16 @@ export const createEmployeeSchema = z.object({
   hourlyRate: z.number().positive().optional().nullable(),
   overtimeRate: z.number().positive().optional().nullable(),
   allowances: z.number().min(0).optional().default(0),
-  cpfApplicable: z.boolean().optional().default(false),
+  statutorySchemeId: z.string().optional().nullable(),
   bankName: z.string().optional().nullable(),
   bankAccountNo: z.string().optional().nullable(),
   joinDate: z.string({ required_error: 'Join date is required' }),
+  resignDate: z.string().optional().nullable(),
   emergencyContact: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
   photoUrl: z.string().url().optional().nullable(),
   userId: z.string().optional().nullable(),
+  managerId: z.string().optional().nullable(),
 });
 
 export const updateEmployeeSchema = createEmployeeSchema.partial();
-
-export const createAttendanceSchema = z.object({
-  employeeId: z.string().min(1),
-  projectId: z.string().optional().nullable(),
-  date: z.string({ required_error: 'Date is required' }),
-  status: z.enum(['PRESENT', 'ABSENT', 'HALF_DAY', 'ON_LEAVE', 'PUBLIC_HOLIDAY', 'REST_DAY']).optional().default('PRESENT'),
-  hoursWorked: z.number().min(0).max(24).optional().nullable(),
-  overtimeHours: z.number().min(0).max(24).optional().nullable(),
-  notes: z.string().optional().nullable(),
-});
-
-export const bulkAttendanceSchema = z.object({
-  records: z.array(createAttendanceSchema).min(1),
-});

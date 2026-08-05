@@ -5,6 +5,7 @@ import prisma from './prisma';
  * Non-blocking — failures are logged but not thrown.
  */
 export async function writeAuditLog(opts: {
+  organizationId?: string | null;
   userId?: string | null;
   action: string;     // e.g. 'CREATE', 'UPDATE', 'DELETE'
   entity: string;     // e.g. 'Invoice', 'Employee'
@@ -17,6 +18,7 @@ export async function writeAuditLog(opts: {
   try {
     await prisma.auditLog.create({
       data: {
+        organizationId: opts.organizationId ?? undefined,
         userId: opts.userId ?? undefined,
         action: opts.action,
         entity: opts.entity,

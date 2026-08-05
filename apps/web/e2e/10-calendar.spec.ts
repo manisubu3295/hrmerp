@@ -189,20 +189,22 @@ test.describe('Calendar Navigation', () => {
     await login(page);
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
-    // Sidebar uses Box with onClick, not <a> tags — find by text
-    await expect(page.getByText('Calendar').first()).toBeVisible({ timeout: 8000 });
+    await expect(page.getByRole('link', { name: /^calendar$/i }).first()).toBeVisible({ timeout: 8000 });
   });
 
   test('clicking Calendar in sidebar navigates to /calendar', async ({ page }) => {
     await login(page);
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
-    // Sidebar nav items are Box with onClick; use the sidebar text "Calendar"
-    // On dashboard, there is no page heading "Calendar", so first match IS the sidebar item
-    await page.getByText('Calendar').first().click();
+    await page.getByRole('link', { name: /^calendar$/i }).first().click();
     await page.waitForURL('/calendar', { timeout: 8000 });
     await expect(page).toHaveURL('/calendar');
   });
+});
+
+// This test must run without pre-loaded auth state
+test.describe('Calendar Navigation — Unauthenticated', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
 
   test('unauthenticated user is redirected from /calendar', async ({ page }) => {
     await page.goto('/calendar');

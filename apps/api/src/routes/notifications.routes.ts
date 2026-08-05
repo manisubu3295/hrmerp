@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import prisma from '../lib/prisma';
+import prisma, { prismaUnscoped } from '../lib/prisma';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 import { AppError } from '../middleware/error.middleware';
 import { NotificationType, NotificationPriority, WORK_PASS_ALERT_DAYS } from '@sankoerp/shared';
@@ -7,7 +7,12 @@ import { onEvent } from '../lib/events';
 
 const router = Router();
 
+// Uses prismaUnscoped + an explicit organizationId: these event listeners fire
+// from system/cron code with no request context (see lib/events.ts), so the
+// tenant-scoped default client isn't usable here — organizationId must come
+// from the event payload instead.
 async function createNotification(data: {
+  organizationId: string;
   userId?: string;
   projectId?: string;
   type: NotificationType;
@@ -16,8 +21,9 @@ async function createNotification(data: {
   priority?: NotificationPriority;
   metadata?: Record<string, unknown>;
 }) {
-  return prisma.notification.create({
+  return prismaUnscoped.notification.create({
     data: {
+      organizationId: data.organizationId,
       userId: data.userId,
       projectId: data.projectId,
       type: data.type,
@@ -30,9 +36,9 @@ async function createNotification(data: {
   });
 }
 
-async function getAdminUserIds(): Promise<string[]> {
-  const admins = await prisma.user.findMany({
-    where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] }, isActive: true },
+async function getAdminUserIds(organizationId: string): Promise<string[]> {
+  const admins = await prismaUnscoped.user.findMany({
+    where: { organizationId, role: { in: ['ADMIN', 'SUPER_ADMIN'] }, isActive: true },
     select: { id: true },
   });
   return admins.map((a) => a.id);
@@ -40,7 +46,7 @@ async function getAdminUserIds(): Promise<string[]> {
 
 // Register event listeners
 onEvent('workpass.expiring', async (payload: {
-  workPassId: string; employeeId: string; employeeName: string;
+  organizationId: string; workPassId: string; employeeId: string; employeeName: string;
   daysToExpiry: number; expiryDate: Date; passType: string;
 }) => {
   let type: NotificationType;
@@ -57,9 +63,10 @@ onEvent('workpass.expiring', async (payload: {
     priority = NotificationPriority.HIGH;
   }
 
-  const admins = await getAdminUserIds();
+  const admins = await getAdminUserIds(payload.organizationId);
   for (const userId of admins) {
     await createNotification({
+      organizationId: payload.organizationId,
       userId, type,
       title: `Work Pass Expiring in ${payload.daysToExpiry} Days`,
       message: `${payload.employeeName}'s ${payload.passType} expires on ${(payload.expiryDate as Date).toLocaleDateString('en-SG')}. Initiate renewal now.`,
@@ -69,10 +76,11 @@ onEvent('workpass.expiring', async (payload: {
   }
 });
 
-onEvent('project.budget.threshold', async (payload: { projectId: string; projectCode: string; usedPercent: number }) => {
-  const admins = await getAdminUserIds();
+onEvent('project.budget.threshold', async (payload: { organizationId: string; projectId: string; projectCode: string; usedPercent: number }) => {
+  const admins = await getAdminUserIds(payload.organizationId);
   for (const userId of admins) {
     await createNotification({
+      organizationId: payload.organizationId,
       userId, projectId: payload.projectId,
       type: NotificationType.PROJECT_BUDGET_80,
       title: `Project Budget Alert: ${payload.projectCode}`,
@@ -83,10 +91,11 @@ onEvent('project.budget.threshold', async (payload: { projectId: string; project
   }
 });
 
-onEvent('project.completed', async (payload: { projectId: string; projectCode: string }) => {
-  const admins = await getAdminUserIds();
+onEvent('project.completed', async (payload: { organizationId: string; projectId: string; projectCode: string }) => {
+  const admins = await getAdminUserIds(payload.organizationId);
   for (const userId of admins) {
     await createNotification({
+      organizationId: payload.organizationId,
       userId, projectId: payload.projectId,
       type: NotificationType.PROJECT_COMPLETED,
       title: `Project Completed: ${payload.projectCode}`,
@@ -97,10 +106,11 @@ onEvent('project.completed', async (payload: { projectId: string; projectCode: s
   }
 });
 
-onEvent('payment.received', async (payload: { invoiceId: string; invoiceCode: string; amount: number }) => {
-  const admins = await getAdminUserIds();
+onEvent('payment.received', async (payload: { organizationId: string; invoiceId: string; invoiceCode: string; amount: number }) => {
+  const admins = await getAdminUserIds(payload.organizationId);
   for (const userId of admins) {
     await createNotification({
+      organizationId: payload.organizationId,
       userId,
       type: NotificationType.PAYMENT_RECEIVED,
       title: `Payment Received: ${payload.invoiceCode}`,
@@ -111,16 +121,35 @@ onEvent('payment.received', async (payload: { invoiceId: string; invoiceCode: st
   }
 });
 
-onEvent('inventory.low_stock', async (payload: { itemId: string; itemName: string; availableQuantity: number; minStockLevel: number }) => {
-  const admins = await getAdminUserIds();
+onEvent('inventory.low_stock', async (payload: { organizationId: string; itemId: string; itemName: string; availableQuantity: number; minStockLevel: number }) => {
+  const admins = await getAdminUserIds(payload.organizationId);
   for (const userId of admins) {
     await createNotification({
+      organizationId: payload.organizationId,
       userId,
       type: NotificationType.INVENTORY_LOW_STOCK,
       title: `Low Stock Alert: ${payload.itemName}`,
       message: `${payload.itemName} stock is low (${payload.availableQuantity} remaining, minimum: ${payload.minStockLevel}). Consider reordering.`,
       priority: NotificationPriority.MEDIUM,
       metadata: { itemId: payload.itemId },
+    });
+  }
+});
+
+onEvent('equipment.maintenance_due', async (payload: {
+  organizationId: string; itemId?: string; assetUnitId?: string; assetTag?: string; itemName: string; dueDate: Date;
+}) => {
+  const admins = await getAdminUserIds(payload.organizationId);
+  const label = payload.assetTag ? `${payload.itemName} (${payload.assetTag})` : payload.itemName;
+  for (const userId of admins) {
+    await createNotification({
+      organizationId: payload.organizationId,
+      userId,
+      type: NotificationType.EQUIPMENT_MAINTENANCE_DUE,
+      title: `Maintenance Due: ${label}`,
+      message: `${label} is due for maintenance on ${new Date(payload.dueDate).toLocaleDateString('en-SG')}.`,
+      priority: NotificationPriority.MEDIUM,
+      metadata: { itemId: payload.itemId, assetUnitId: payload.assetUnitId },
     });
   }
 });

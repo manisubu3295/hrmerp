@@ -1,7 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
-import { requireRoles } from '../middleware/auth.middleware';
-import { UserRole } from '@sankoerp/shared';
+import { requirePermission } from '../middleware/auth.middleware';
 import { Prisma, ProjectStatus } from '@prisma/client';
 
 /** Convert an array of objects to CSV string */
@@ -18,7 +17,7 @@ function toCsv(rows: Record<string, unknown>[]): string {
 const router = Router();
 
 // GET /reports/profit
-router.get('/profit', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/profit', requirePermission('reports:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { startDate, endDate, clientId } = req.query as unknown as Record<string, string | undefined>;
 
@@ -92,7 +91,7 @@ router.get('/profit', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRol
 });
 
 // GET /reports/monthly-trends
-router.get('/monthly-trends', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/monthly-trends', requirePermission('reports:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const year = Number(req.query['year']) || new Date().getFullYear();
     const months = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -120,7 +119,7 @@ router.get('/monthly-trends', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN,
 });
 
 // GET /reports/clients
-router.get('/clients', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/clients', requirePermission('reports:read'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const clients = await prisma.client.findMany({
       include: {
@@ -151,7 +150,7 @@ router.get('/clients', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRo
 });
 
 // GET /reports/employee-productivity
-router.get('/employee-productivity', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/employee-productivity', requirePermission('reports:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { startDate: sd, endDate: ed } = req.query as unknown as Record<string, string | undefined>;
     const startDate = sd ? new Date(sd) : new Date(new Date().getFullYear(), 0, 1);
@@ -181,7 +180,7 @@ router.get('/employee-productivity', requireRoles(UserRole.ADMIN, UserRole.SUPER
 });
 
 // GET /reports/export/timesheets — CSV export of attendance records
-router.get('/export/timesheets', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/export/timesheets', requirePermission('reports:export'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { month, year, employeeId, projectId } = req.query as Record<string, string | undefined>;
 
@@ -225,7 +224,7 @@ router.get('/export/timesheets', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADM
 });
 
 // GET /reports/export/profit — CSV export of project profit report
-router.get('/export/profit', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/export/profit', requirePermission('reports:export'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { startDate, endDate, clientId } = req.query as Record<string, string | undefined>;
 
@@ -278,7 +277,7 @@ router.get('/export/profit', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, 
 });
 
 // GET /reports/export/payroll — CSV export of payroll records for a period
-router.get('/export/payroll', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/export/payroll', requirePermission('reports:export'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { month, year } = req.query as Record<string, string | undefined>;
 
@@ -326,7 +325,7 @@ router.get('/export/payroll', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN,
 });
 
 // GET /reports/generate?type=... — Table data for the Reports page
-router.get('/generate', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/generate', requirePermission('reports:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { type } = req.query as { type?: string };
 
@@ -339,19 +338,19 @@ router.get('/generate', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserR
         return res.json({ success: true, data: data.map((p) => ({
           projectCode: p.projectCode, name: p.name, client: p.client?.name ?? '',
           status: p.status, startDate: p.startDate, endDate: p.endDate ?? p.actualEndDate,
-          contractValue: Number(p.contractValue), employees: p._count.employees,
+          quotedBudget: Number(p.quotedBudget), employees: p._count.employees,
         })) });
       }
 
       case 'employees': {
         const data = await prisma.employee.findMany({
-          include: { workPasses: { where: { status: 'ACTIVE' }, take: 1, orderBy: { expiryDate: 'desc' } } },
+          include: { workPass: { where: { status: 'ACTIVE' }, take: 1, orderBy: { expiryDate: 'desc' } } },
           orderBy: { createdAt: 'desc' },
         });
         return res.json({ success: true, data: data.map((e) => ({
           employeeCode: e.employeeCode, name: `${e.firstName} ${e.lastName}`,
           nationality: e.nationality ?? '', jobTitle: e.jobTitle ?? '', department: e.department ?? '',
-          passType: e.workPasses[0]?.passType ?? '', status: e.isActive ? 'Active' : 'Inactive',
+          passType: e.workPass[0]?.passType ?? '', status: e.isActive ? 'Active' : 'Inactive',
         })) });
       }
 
@@ -361,7 +360,7 @@ router.get('/generate', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserR
           orderBy: { createdAt: 'desc' },
         });
         return res.json({ success: true, data: data.map((i) => ({
-          invoiceNumber: i.invoiceNumber, project: i.project?.name ?? '', status: i.status,
+          invoiceCode: i.invoiceCode, project: i.project?.name ?? '', status: i.status,
           totalAmount: Number(i.totalAmount), paidAmount: Number(i.paidAmount),
           outstanding: Number(i.totalAmount) - Number(i.paidAmount), dueDate: i.dueDate,
           issueDate: i.issueDate,
@@ -370,12 +369,12 @@ router.get('/generate', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserR
 
       case 'expenses': {
         const data = await prisma.expense.findMany({
-          include: { project: { select: { name: true } }, employee: { select: { firstName: true, lastName: true } } },
+          include: { project: { select: { name: true } }, submittedBy: { select: { firstName: true, lastName: true } } },
           orderBy: { date: 'desc' },
         });
         return res.json({ success: true, data: data.map((e) => ({
           date: e.date, category: e.category, amount: Number(e.amount),
-          project: e.project?.name ?? '', employee: e.employee ? `${e.employee.firstName} ${e.employee.lastName}` : '',
+          project: e.project?.name ?? '', employee: e.submittedBy ? `${e.submittedBy.firstName} ${e.submittedBy.lastName}` : '',
           status: e.status, description: e.description ?? '',
         })) });
       }
@@ -396,14 +395,27 @@ router.get('/generate', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserR
 
       case 'equipment': {
         const data = await prisma.equipmentItem.findMany({
-          include: { category: { select: { name: true } } },
+          include: {
+            category: { select: { name: true } },
+            warehouseStocks: { select: { quantityOnHand: true } },
+            assetUnits: { select: { status: true } },
+            issues: { where: { returnedAt: null }, select: { quantity: true } },
+          },
           orderBy: { name: 'asc' },
         });
-        return res.json({ success: true, data: data.map((e) => ({
-          name: e.name, category: e.category?.name ?? '', serialNumber: e.serialNumber ?? '',
-          status: e.status, totalQuantity: e.totalQuantity, availableQuantity: e.availableQuantity,
-          issuedQuantity: e.totalQuantity - e.availableQuantity,
-        })) });
+        return res.json({ success: true, data: data.map((e) => {
+          const issuedQuantity = e.trackingMode === 'SERIALIZED'
+            ? e.assetUnits.filter((u) => u.status === 'ISSUED').length
+            : e.issues.reduce((s, i) => s + i.quantity, 0);
+          const availableQuantity = e.trackingMode === 'SERIALIZED'
+            ? e.assetUnits.filter((u) => u.status === 'IN_STOCK').length
+            : e.warehouseStocks.reduce((s, w) => s + w.quantityOnHand, 0);
+          return {
+            name: e.name, category: e.category?.name ?? '', itemCode: e.itemCode,
+            status: e.isActive ? 'Active' : 'Inactive',
+            totalQuantity: availableQuantity + issuedQuantity, availableQuantity, issuedQuantity,
+          };
+        }) });
       }
 
       default:

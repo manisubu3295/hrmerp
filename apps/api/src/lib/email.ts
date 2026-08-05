@@ -31,8 +31,8 @@ function createTransport() {
   });
 }
 
-const FROM_NAME = process.env['EMAIL_FROM_NAME'] ?? 'SankoERP';
-const FROM_EMAIL = process.env['EMAIL_FROM'] ?? 'noreply@sankoerp.com';
+const FROM_NAME = process.env['EMAIL_FROM_NAME'] ?? 'Aadhirai HRM OS';
+const FROM_EMAIL = process.env['EMAIL_FROM'] ?? 'noreply@aadhirai.com';
 
 /**
  * Send an email. In development (no SMTP configured), logs to console.
@@ -82,7 +82,7 @@ export function invoiceEmailHtml(invoiceCode: string, clientName: string, amount
         <p>If you have any questions, please contact us.</p>
         <p>Thank you for your business.</p>
         <hr/>
-        <p style="color: #666; font-size: 12px;">SankoERP &mdash; Construction & Manpower Management</p>
+        <p style="color: #666; font-size: 12px;">Aadhirai HRM OS &mdash; Construction & Manpower Management</p>
       </div>
     </div>
   `;
@@ -101,7 +101,7 @@ export function leaveApprovalEmailHtml(employeeName: string, leaveType: string, 
         has been <strong>${status.toLowerCase()}</strong>.</p>
         ${reason ? `<p>Reason: ${reason}</p>` : ''}
         <hr/>
-        <p style="color: #666; font-size: 12px;">SankoERP HR System</p>
+        <p style="color: #666; font-size: 12px;">Aadhirai HRM OS HR System</p>
       </div>
     </div>
   `;
@@ -123,7 +123,7 @@ export function workPassExpiryEmailHtml(employeeName: string, passType: string, 
         </table>
         <p>Please take immediate action to renew this work pass.</p>
         <hr/>
-        <p style="color: #666; font-size: 12px;">SankoERP Compliance System</p>
+        <p style="color: #666; font-size: 12px;">Aadhirai HRM OS Compliance System</p>
       </div>
     </div>
   `;
@@ -136,14 +136,14 @@ export function passwordResetEmailHtml(resetLink: string): string {
         <h2 style="margin:0">Password Reset Request</h2>
       </div>
       <div style="padding: 20px;">
-        <p>You requested a password reset for your SankoERP account.</p>
+        <p>You requested a password reset for your Aadhirai HRM OS account.</p>
         <p>Click the button below to reset your password. This link expires in 1 hour.</p>
         <div style="text-align: center; margin: 30px 0;">
           <a href="${resetLink}" style="background: #1976D2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Reset Password</a>
         </div>
         <p>If you didn't request this, you can safely ignore this email.</p>
         <hr/>
-        <p style="color: #666; font-size: 12px;">SankoERP &mdash; This link expires in 1 hour.</p>
+        <p style="color: #666; font-size: 12px;">Aadhirai HRM OS &mdash; This link expires in 1 hour.</p>
       </div>
     </div>
   `;

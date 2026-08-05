@@ -112,9 +112,16 @@ export default function EditProjectPage() {
   }, [p?.id, reset]);
 
   const mutation = useMutation({
-    mutationFn: (data: FormData) => {
+    mutationFn: async (data: FormData) => {
+      // Status changes go through the dedicated endpoint (it stamps
+      // actualEndDate on COMPLETED and emits a 'project.completed' event) —
+      // the generic update below no longer accepts status at all.
+      const { status, ...rest } = data;
+      if (status && status !== p.status) {
+        await projectsApi.updateStatus(id!, status);
+      }
       const payload = {
-        ...data,
+        ...rest,
         targetMargin: (data.targetMargin ?? 15) / 100,
         overheadPercent: (data.overheadPercent ?? 0) / 100,
       };

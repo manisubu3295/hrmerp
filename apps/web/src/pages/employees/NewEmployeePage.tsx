@@ -1,34 +1,36 @@
-﻿import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box, Button, Card, CardContent, Typography, TextField, Select, MenuItem,
-  FormControl, InputLabel, Grid, CircularProgress,
+  FormControl, InputLabel, Grid, CircularProgress, Autocomplete,
 } from "@mui/material";
 import { ArrowBack, Person } from "@mui/icons-material";
 import { toast } from "sonner";
-import { employeesApi } from "@/lib/api";
+import { employeesApi, settingsApi } from "@/lib/api";
 
-const WORK_PASS_TYPES = ["CITIZEN", "PR", "EP", "SP", "WP", "LTVP", "NONE"];
+const IDENTITY_DOC_TYPES = ["NRIC_FIN", "PASSPORT", "NATIONAL_ID", "SSN", "OTHER"];
 
 const schema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
-  email: z.string().email("Invalid email"),
+  email: z.string().email("Invalid email").optional().or(z.literal("")),
   phone: z.string().optional(),
-  designation: z.string().optional(),
+  jobTitle: z.string().optional(),
   department: z.string().optional(),
   nationality: z.string().optional(),
   joinDate: z.string().min(1, "Join date is required"),
-  basicSalary: z.coerce.number().min(0),
-  workPassType: z.string().optional(),
-  workPassNumber: z.string().optional(),
-  workPassExpiry: z.string().optional(),
-  nricFin: z.string().optional(),
+  dailyRate: z.coerce.number().min(0),
+  statutorySchemeId: z.string().optional(),
+  identityDocType: z.string().optional(),
+  identityDocNumber: z.string().optional(),
+  managerId: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
+
+interface ManagerOption { id: string; firstName: string; lastName: string; employeeCode: string }
 
 function SectionLabel({ children }: { children: string }) {
   return <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", mb: 2 }}>{children}</Typography>;
@@ -38,13 +40,20 @@ export default function NewEmployeePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
+  const { data: schemesData } = useQuery({ queryKey: ["statutory-schemes"], queryFn: () => settingsApi.getStatutorySchemes() });
+  const schemes: Array<{ id: string; name: string }> = schemesData?.data?.data ?? [];
+
+  const { data: managersData } = useQuery({ queryKey: ["employees-manager-picker"], queryFn: () => employeesApi.getAll({ limit: 500 }) });
+  const managers: ManagerOption[] = managersData?.data?.data?.data ?? [];
+
   const { control, register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { basicSalary: 0 },
+    defaultValues: { dailyRate: 0, statutorySchemeId: "", identityDocType: "", managerId: "" },
   });
 
   const mutation = useMutation({
-    mutationFn: (data: FormData) => employeesApi.create(data),
+    mutationFn: (data: FormData) =>
+      employeesApi.create({ ...data, statutorySchemeId: data.statutorySchemeId || null, managerId: data.managerId || null }),
     onSuccess: () => { toast.success("Employee added"); qc.invalidateQueries({ queryKey: ["employees"] }); navigate("/employees"); },
     onError: (err: any) => toast.error(err?.response?.data?.message ?? "Failed to add employee"),
   });
@@ -58,7 +67,7 @@ export default function NewEmployeePage() {
         </Box>
         <Box>
           <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.02em" }}>Add Employee</Typography>
-          <Typography sx={{ fontSize: "0.8125rem", color: "#64748b" }}>Enter employee information and work pass details</Typography>
+          <Typography sx={{ fontSize: "0.8125rem", color: "#64748b" }}>Enter employee information and identity details</Typography>
         </Box>
       </Box>
 
@@ -84,8 +93,28 @@ export default function NewEmployeePage() {
                   <Grid item xs={12} md={6}>
                     <TextField label="Nationality" fullWidth {...register("nationality")} />
                   </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12}>
+            <Card>
+              <CardContent sx={{ p: 3 }}>
+                <SectionLabel>Identity Document</SectionLabel>
+                <Grid container spacing={2.5}>
                   <Grid item xs={12} md={6}>
-                    <TextField label="NRIC / FIN" fullWidth {...register("nricFin")} />
+                    <FormControl fullWidth>
+                      <InputLabel>Document Type</InputLabel>
+                      <Controller name="identityDocType" control={control} render={({ field }) => (
+                        <Select {...field} label="Document Type">
+                          <MenuItem value="">Not specified</MenuItem>
+                          {IDENTITY_DOC_TYPES.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                        </Select>
+                      )} />
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField label="Document Number" fullWidth {...register("identityDocNumber")} />
                   </Grid>
                 </Grid>
               </CardContent>
@@ -97,7 +126,7 @@ export default function NewEmployeePage() {
                 <SectionLabel>Employment Details</SectionLabel>
                 <Grid container spacing={2.5}>
                   <Grid item xs={12} md={6}>
-                    <TextField label="Designation" fullWidth {...register("designation")} />
+                    <TextField label="Job Title" fullWidth {...register("jobTitle")} />
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <TextField label="Department" fullWidth {...register("department")} />
@@ -106,32 +135,29 @@ export default function NewEmployeePage() {
                     <TextField label="Join Date" type="date" fullWidth InputLabelProps={{ shrink: true }} {...register("joinDate")} error={!!errors.joinDate} helperText={errors.joinDate?.message} />
                   </Grid>
                   <Grid item xs={12} md={6}>
-                    <TextField label="Basic Salary (SGD)" type="number" fullWidth {...register("basicSalary")} />
+                    <TextField label="Daily Rate (SGD)" type="number" inputProps={{ step: "0.01", min: "0" }} fullWidth {...register("dailyRate")} />
                   </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12}>
-            <Card>
-              <CardContent sx={{ p: 3 }}>
-                <SectionLabel>Work Pass</SectionLabel>
-                <Grid container spacing={2.5}>
-                  <Grid item xs={12} md={4}>
+                  <Grid item xs={12} md={6}>
                     <FormControl fullWidth>
-                      <InputLabel>Work Pass Type</InputLabel>
-                      <Controller name="workPassType" control={control} defaultValue="" render={({ field }) => (
-                        <Select {...field} label="Work Pass Type">
-                          {WORK_PASS_TYPES.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                      <InputLabel>Statutory Scheme</InputLabel>
+                      <Controller name="statutorySchemeId" control={control} render={({ field }) => (
+                        <Select {...field} label="Statutory Scheme">
+                          <MenuItem value="">None</MenuItem>
+                          {schemes.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
                         </Select>
                       )} />
                     </FormControl>
                   </Grid>
-                  <Grid item xs={12} md={4}>
-                    <TextField label="Work Pass Number" fullWidth {...register("workPassNumber")} />
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <TextField label="Work Pass Expiry" type="date" fullWidth InputLabelProps={{ shrink: true }} {...register("workPassExpiry")} />
+                  <Grid item xs={12} md={6}>
+                    <Controller name="managerId" control={control} render={({ field }) => (
+                      <Autocomplete
+                        options={managers}
+                        getOptionLabel={(m: ManagerOption) => `${m.firstName} ${m.lastName} (${m.employeeCode})`}
+                        value={managers.find(m => m.id === field.value) ?? null}
+                        onChange={(_, v) => field.onChange(v?.id ?? "")}
+                        renderInput={(params) => <TextField {...params} label="Reports To" />}
+                      />
+                    )} />
                   </Grid>
                 </Grid>
               </CardContent>

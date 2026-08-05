@@ -72,10 +72,10 @@ export default function ResetPasswordPage() {
               display: "flex", alignItems: "center", justifyContent: "center",
             }}
           >
-            <Typography sx={{ color: "#fff", fontWeight: 800, fontSize: "1rem" }}>S</Typography>
+            <Typography sx={{ color: "#fff", fontWeight: 800, fontSize: "1rem" }}>A</Typography>
           </Box>
           <Typography sx={{ fontWeight: 800, fontSize: "1.125rem", color: "#0f172a", letterSpacing: "-0.02em" }}>
-            SankoERP
+            Aadhirai HRM OS
           </Typography>
         </Box>
 

@@ -1,16 +1,15 @@
 import { Page } from '@playwright/test';
 
-export async function login(page: Page, email = 'admin@sankoerp.com', password = 'Admin@123!') {
-  await page.goto('/login');
-  // Labels don't have htmlFor, so use placeholder/type selectors
-  await page.locator('input[type="email"]').fill(email);
-  await page.locator('input[type="password"]').fill(password);
-  await page.getByRole('button', { name: /sign in to dashboard/i }).click();
-  await page.waitForURL('/dashboard', { timeout: 15000 });
+/**
+ * Navigate to the authenticated dashboard.
+ * Auth state (localStorage token) is pre-loaded via playwright.config.ts storageState,
+ * so no actual login request is made — this avoids hitting the rate limiter.
+ */
+export async function login(page: Page) {
+  await page.goto('/dashboard');
+  await page.waitForURL('/dashboard', { timeout: 10000 });
 }
 
 export async function loginAndSaveState(page: Page) {
   await login(page);
-  // Wait for the store to hydrate
-  await page.waitForTimeout(500);
 }

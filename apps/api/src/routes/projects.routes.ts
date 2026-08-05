@@ -2,19 +2,30 @@ import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 import { AppError } from '../middleware/error.middleware';
-import { requireRoles } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validate';
 import { createProjectSchema, updateProjectSchema } from '../schemas/projects.schema';
-import { UserRole, ProjectStatus } from '@sankoerp/shared';
+import { ProjectStatus } from '@sankoerp/shared';
 import { Prisma } from '@prisma/client';
 import { emitEvent } from '../lib/events';
+import { nextSequentialCode, withCodeRetry } from '../lib/codes';
 
 const router = Router();
 
 async function generateProjectCode(): Promise<string> {
-  const count = await prisma.project.count();
-  const year = new Date().getFullYear();
-  return `PRJ-${year}-${String(count + 1).padStart(4, '0')}`;
+  const prefix = `PRJ-${new Date().getFullYear()}-`;
+  return nextSequentialCode({
+    prefix,
+    padLength: 4,
+    findLatestCode: async (p) => {
+      const row = await prisma.project.findFirst({
+        where: { projectCode: { startsWith: p } },
+        orderBy: { projectCode: 'desc' },
+        select: { projectCode: true },
+      });
+      return row?.projectCode ?? null;
+    },
+  });
 }
 
 async function findProjectOrFail(id: string) {
@@ -73,22 +84,24 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // POST /projects
-router.post('/', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), validate(createProjectSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', requirePermission('project:create'), validate(createProjectSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const dto = req.body;
-    const projectCode = await generateProjectCode();
-    const project = await prisma.project.create({
-      data: {
-        ...dto,
-        projectCode,
-        startDate: new Date(dto.startDate),
-        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
-        quotedBudget: dto.quotedBudget ?? 0,
-        targetMargin: dto.targetMargin ?? 0.15,
-        overheadPercent: dto.overheadPercent ?? 0,
-      },
-      include: { client: { select: { id: true, name: true } } },
-    });
+    const project = await withCodeRetry(async () => {
+      const projectCode = await generateProjectCode();
+      return prisma.project.create({
+        data: {
+          ...dto,
+          projectCode,
+          startDate: new Date(dto.startDate),
+          endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+          quotedBudget: dto.quotedBudget ?? 0,
+          targetMargin: dto.targetMargin ?? 0.15,
+          overheadPercent: dto.overheadPercent ?? 0,
+        },
+        include: { client: { select: { id: true, name: true } } },
+      });
+    }, 'projectCode');
     res.status(201).json({ success: true, data: project });
   } catch (e) { next(e); }
 });
@@ -102,7 +115,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // PATCH /projects/:id
-router.patch('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), validate(updateProjectSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id', requirePermission('project:update'), validate(updateProjectSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     await findProjectOrFail(req.params['id']!);
     const dto = req.body;
@@ -119,7 +132,7 @@ router.patch('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole
 });
 
 // PATCH /projects/:id/status
-router.patch('/:id/status', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id/status', requirePermission('project:update_status'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { status } = req.body as { status: ProjectStatus };
     if (!status) throw new AppError(400, 'status is required');
@@ -132,14 +145,14 @@ router.patch('/:id/status', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, U
       },
     });
     if (status === 'COMPLETED') {
-      emitEvent('project.completed', { projectId: req.params['id'], projectCode: project.projectCode });
+      emitEvent('project.completed', { organizationId: req.organizationId, projectId: req.params['id'], projectCode: project.projectCode });
     }
     res.json({ success: true, data: updated });
   } catch (e) { next(e); }
 });
 
 // POST /projects/:id/employees
-router.post('/:id/employees', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/employees', requirePermission('project:manage_team'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const projectId = req.params['id']!;
     await findProjectOrFail(projectId);
@@ -148,7 +161,7 @@ router.post('/:id/employees', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN,
     const ops = employees.map((e) =>
       prisma.projectEmployee.upsert({
         where: { projectId_employeeId: { projectId, employeeId: e.employeeId } },
-        create: { projectId, employeeId: e.employeeId, role: e.role, dailyRate: e.dailyRate ?? 0, isActive: true },
+        create: { organizationId: req.organizationId as string, projectId, employeeId: e.employeeId, role: e.role, dailyRate: e.dailyRate ?? 0, isActive: true },
         update: { role: e.role, dailyRate: e.dailyRate ?? 0, isActive: true, removedAt: null },
       }),
     );
@@ -159,7 +172,7 @@ router.post('/:id/employees', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN,
 });
 
 // DELETE /projects/:id/employees/:employeeId
-router.delete('/:id/employees/:employeeId', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/:id/employees/:employeeId', requirePermission('project:manage_team'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     await prisma.projectEmployee.update({
       where: { projectId_employeeId: { projectId: req.params['id']!, employeeId: req.params['employeeId']! } },
@@ -179,7 +192,7 @@ router.get('/:id/profit', async (req: Request, res: Response, next: NextFunction
     const revenue = invoices.reduce((s, i) => s + Number(i.paidAmount), 0);
     const totalBilled = invoices.reduce((s, i) => s + Number(i.totalAmount), 0);
 
-    const attendances = await prisma.attendance.findMany({ where: { projectId: id } });
+    const attendances = await prisma.attendance.findMany({ where: { projectId: id, approvalStatus: 'APPROVED' } });
     const salaryCost = attendances.reduce((s, a) => s + Number(a.dailyWage) + Number(a.overtimePay), 0);
 
     const expenses = await prisma.expense.findMany({ where: { projectId: id, status: 'APPROVED' } });

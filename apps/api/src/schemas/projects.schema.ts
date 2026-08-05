@@ -15,7 +15,10 @@ export const createProjectSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
-export const updateProjectSchema = createProjectSchema.partial();
+// status is intentionally excluded from generic updates — PATCH /:id/status
+// is the only status-change path (it stamps actualEndDate on COMPLETED and
+// emits a 'project.completed' event that this generic update must not skip).
+export const updateProjectSchema = createProjectSchema.partial().omit({ status: true });
 
 export const assignEmployeeSchema = z.object({
   employeeId: z.string().min(1, 'Employee is required'),

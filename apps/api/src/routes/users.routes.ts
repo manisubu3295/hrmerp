@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import prisma from '../lib/prisma';
-import { requireRoles } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/auth.middleware';
 import { AppError } from '../middleware/error.middleware';
 import { UserRole } from '@sankoerp/shared';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
@@ -9,7 +9,7 @@ import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 const router = Router();
 
 // GET /users
-router.get('/', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/', requirePermission('user:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { skip, take, page, limit } = parsePagination(req.query);
     const { search, role, isActive } = req.query as unknown as Record<string, string | undefined>;
@@ -44,7 +44,7 @@ router.get('/', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (req: 
 });
 
 // GET /users/:id
-router.get('/:id', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id', requirePermission('user:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.params['id'] },
@@ -60,7 +60,7 @@ router.get('/:id', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (re
 });
 
 // POST /users — create a new user (ADMIN/SUPER_ADMIN)
-router.post('/', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', requirePermission('user:create'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, password, role, employeeId } = req.body as {
       email: string; password: string; role: string; employeeId?: string;
@@ -84,6 +84,7 @@ router.post('/', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (req:
         email,
         passwordHash,
         role: role as UserRole,
+        organizationId: req.organizationId as string,
         ...(employeeId && { employee: { connect: { id: employeeId } } }),
       },
       select: { id: true, email: true, role: true, isActive: true, createdAt: true },
@@ -93,7 +94,7 @@ router.post('/', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (req:
 });
 
 // PATCH /users/:id — update email or employeeId link
-router.patch('/:id', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id', requirePermission('user:update'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, employeeId } = req.body as { email?: string; employeeId?: string | null };
     const updates: Record<string, unknown> = {};
@@ -115,7 +116,7 @@ router.patch('/:id', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (
 });
 
 // POST /users/:id/reset-password — admin resets a user's password
-router.post('/:id/reset-password', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/reset-password', requirePermission('user:reset_password'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { newPassword } = req.body as { newPassword: string };
     if (!newPassword || newPassword.length < 8) throw new AppError(400, 'New password must be at least 8 characters');
@@ -132,7 +133,7 @@ router.post('/:id/reset-password', requireRoles(UserRole.SUPER_ADMIN, UserRole.A
 });
 
 // PATCH /users/:id/role
-router.patch('/:id/role', requireRoles(UserRole.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id/role', requirePermission('user:manage_role'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { role } = req.body as { role: string };
     if (!role || !Object.values(UserRole).includes(role as UserRole)) {
@@ -156,7 +157,7 @@ router.patch('/:id/role', requireRoles(UserRole.SUPER_ADMIN), async (req: Reques
 });
 
 // PATCH /users/:id/active
-router.patch('/:id/active', requireRoles(UserRole.SUPER_ADMIN, UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id/active', requirePermission('user:update'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (req.params['id'] === req.user?.sub) throw new AppError(400, 'Cannot change your own active status');
     const { isActive } = req.body as { isActive: boolean };

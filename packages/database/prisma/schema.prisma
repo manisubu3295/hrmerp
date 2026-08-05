@@ -12,26 +12,88 @@ datasource db {
 // ============================================================
 
 model Organization {
-  id          String   @id @default(cuid())
-  name        String
-  code        String   @unique
-  logoUrl     String?
-  address     String?
-  phone       String?
-  email       String?
-  uen         String?  // Singapore UEN
-  gstNo       String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  name            String
+  code            String   @unique
+  logoUrl         String?
+  address         String?
+  phone           String?
+  email           String?
+  uen             String?  // Singapore UEN
+  gstNo           String?
+  isActive        Boolean  @default(true)
+  defaultCurrency String   @default("SGD")
+  locale          String   @default("en-SG")
+  timezone        String   @default("Asia/Singapore")
+  industryVertical String? // preset key applied at onboarding, e.g. "manpower-staffing"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  users        User[]
+  users                   User[]
+  roles                   Role[]
+  userRoleAssignments     UserRoleAssignment[]
+  vendorPortalUsers       VendorPortalUser[]
+  clientPortalUsers       ClientPortalUser[]
+  ssoConfig               OrganizationSsoConfig?
+  customFieldDefinitions  CustomFieldDefinition[]
+  customFieldValues       CustomFieldValue[]
+  approvalChains          ApprovalChain[]
+  webhookSubscriptions    WebhookSubscription[]
+
+  employees               Employee[]
+  employeeCertifications  EmployeeCertification[]
+  attendances             Attendance[]
+  payrollRecords          PayrollRecord[]
+  leavePolicies           LeavePolicy[]
+  leaveBalances           LeaveBalance[]
+  leaveRequests           LeaveRequest[]
+  clients                 Client[]
+  projects                Project[]
+  projectEmployees        ProjectEmployee[]
+  expenses                Expense[]
+  suppliers               Supplier[]
+  equipmentCategories     EquipmentCategory[]
+  equipmentItems          EquipmentItem[]
+  equipmentPurchases      EquipmentPurchase[]
+  equipmentIssues         EquipmentIssue[]
+  warehouses              Warehouse[]
+  warehouseStocks         WarehouseStock[]
+  assetUnits              AssetUnit[]
+  maintenanceRecords      MaintenanceRecord[]
+  depreciationEntries     DepreciationEntry[]
+  quotations              Quotation[]
+  quotationLineItems      QuotationLineItem[]
+  invoices                Invoice[]
+  invoiceLineItems        InvoiceLineItem[]
+  payments                Payment[]
+  workPasses              WorkPass[]
+  workPassRenewals        WorkPassRenewal[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  auditLogs               AuditLog[]
+  holidays                Holiday[]
+
+  statutorySchemes        StatutoryScheme[]
+  jobRequisitions         JobRequisition[]
+  candidates              Candidate[]
+  applications            Application[]
+  checklistTemplates      ChecklistTemplate[]
+  checklistInstances      ChecklistInstance[]
+  skillDefinitions        SkillDefinition[]
+  employeeSkills          EmployeeSkill[]
+  performanceReviewCycles PerformanceReviewCycle[]
+  performanceReviews      PerformanceReview[]
+  employeeCases           EmployeeCase[]
+  payrollRuns             PayrollRun[]
 
   @@map("organizations")
 }
 
 // ============================================================
-// AUTH & USERS
+// AUTH & USERS (Employer + Employee personas — both are `User`
+// rows today; persona is derived from `role` at token-sign time:
+// EMPLOYEE -> "EMPLOYEE" persona, everything else -> "EMPLOYER".
+// Vendor/Client personas use their own identity tables below.)
 // ============================================================
 
 model User {
@@ -41,15 +103,20 @@ model User {
   role           UserRole      @default(EMPLOYEE)
   isActive       Boolean       @default(true)
   lastLoginAt    DateTime?
-  organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  employee     Employee?
-  notifications Notification[]
-  auditLogs    AuditLog[]
+  employee            Employee?
+  notifications       Notification[]
+  auditLogs           AuditLog[]
   passwordResetTokens PasswordResetToken[]
+  refreshTokens        RefreshToken[]
+  roleAssignments      UserRoleAssignment[]
+  approvalActions      ApprovalAction[]
+  approvalStepsAsApprover ApprovalStep[]
+  employeeCaseComments EmployeeCaseComment[]
 
   @@map("users")
 }
@@ -63,30 +130,346 @@ enum UserRole {
 }
 
 // ============================================================
+// RBAC — replaces flat UserRole-only gating. UserRole/User.role
+// stays as a legacy default-role display field; access control
+// flows through Role -> RolePermission -> Permission from here on.
+// ============================================================
+
+model Role {
+  id             String   @id @default(cuid())
+  organizationId String?  // null = system-defined role template, shared across all tenants
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  key            String   // e.g. "ADMIN", or a tenant-custom key
+  name           String
+  isSystem       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+  userAssignments UserRoleAssignment[]
+  approvalSteps   ApprovalStep[]
+  checklistTemplateTasks ChecklistTemplateTask[]
+
+  @@index([organizationId])
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  resource    String
+  action      String
+  description String?
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@unique([resource, action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRoleAssignment {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId         String
+  role           Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  scopeType      String?  // e.g. "DEPARTMENT", "BRANCH" — null = org-wide
+  scopeId        String?
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+  @@index([organizationId])
+  @@map("user_role_assignments")
+}
+
+// ============================================================
+// AUTH FOUNDATIONS — refresh tokens (Employer/Employee persona,
+// both `User`-backed) + minimal Vendor/Client portal identities
+// (full vendor/client business modules land in Phase 4/5; this
+// pass only gives the 4-persona auth model something to
+// authenticate against) + per-org SSO configuration (scaffold,
+// disabled until an org admin supplies real IdP credentials).
+// ============================================================
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model VendorPortalUser {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  supplierId     String?
+  supplier       Supplier? @relation(fields: [supplierId], references: [id])
+  email          String
+  passwordHash   String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, email])
+  @@map("vendor_portal_users")
+}
+
+model ClientPortalUser {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  clientId       String
+  client         Client   @relation(fields: [clientId], references: [id])
+  email          String
+  passwordHash   String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, email])
+  @@map("client_portal_users")
+}
+
+model OrganizationSsoConfig {
+  id                    String      @id @default(cuid())
+  organizationId        String      @unique
+  organization          Organization @relation(fields: [organizationId], references: [id])
+  provider              SsoProvider @default(OIDC)
+  issuerUrl             String?
+  clientId              String?
+  clientSecretEncrypted String?
+  enabled               Boolean     @default(false)
+  createdAt             DateTime    @default(now())
+  updatedAt              DateTime   @updatedAt
+
+  @@map("organization_sso_configs")
+}
+
+enum SsoProvider {
+  OIDC
+  SAML
+}
+
+// ============================================================
+// PLATFORM CUSTOMIZATION — generic custom fields, usable by any
+// future entity type without schema changes.
+// ============================================================
+
+model CustomFieldDefinition {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  entityType     String        // e.g. "Employee", "Project" — free-form, extensible on purpose
+  fieldKey       String
+  label          String
+  fieldType      CustomFieldType
+  options        Json?
+  required       Boolean       @default(false)
+  sortOrder      Int           @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  values         CustomFieldValue[]
+
+  @@unique([organizationId, entityType, fieldKey])
+  @@map("custom_field_definitions")
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+  MULTI_SELECT
+}
+
+model CustomFieldValue {
+  id               String   @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  entityType       String
+  entityId         String
+  fieldDefinitionId String
+  fieldDefinition  CustomFieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+  value            Json
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([entityType, entityId, fieldDefinitionId])
+  @@index([organizationId, entityType, entityId])
+  @@map("custom_field_values")
+}
+
+// ============================================================
+// APPROVAL CHAIN ENGINE — generic, reusable by Leave/Expense/PO/
+// Payroll flows. Not wired into existing approval fields yet
+// (Phase 1/4 follow-up); schema + service exist so those flows
+// can migrate onto it without another schema change later.
+// ============================================================
+
+model ApprovalChain {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  entityType     String
+  name           String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  steps     ApprovalStep[]
+  instances ApprovalInstance[]
+
+  @@index([organizationId, entityType])
+  @@map("approval_chains")
+}
+
+model ApprovalStep {
+  id             String  @id @default(cuid())
+  chainId        String
+  chain          ApprovalChain @relation(fields: [chainId], references: [id], onDelete: Cascade)
+  stepOrder      Int
+  approverRoleId String?
+  approverRole   Role?   @relation(fields: [approverRoleId], references: [id])
+  approverUserId String?
+  approverUser   User?   @relation(fields: [approverUserId], references: [id])
+  required       Boolean @default(true)
+
+  actions ApprovalAction[]
+
+  @@unique([chainId, stepOrder])
+  @@map("approval_steps")
+}
+
+model ApprovalInstance {
+  id               String   @id @default(cuid())
+  chainId          String
+  chain            ApprovalChain @relation(fields: [chainId], references: [id])
+  entityType       String
+  entityId         String
+  status           ApprovalInstanceStatus @default(PENDING)
+  currentStepOrder Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  actions ApprovalAction[]
+  leaveRequest LeaveRequest?
+
+  @@index([entityType, entityId])
+  @@map("approval_instances")
+}
+
+enum ApprovalInstanceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model ApprovalAction {
+  id          String   @id @default(cuid())
+  instanceId  String
+  instance    ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  stepId      String
+  step        ApprovalStep @relation(fields: [stepId], references: [id])
+  actorUserId String
+  actorUser   User     @relation(fields: [actorUserId], references: [id])
+  decision    ApprovalDecision
+  comment     String?
+  actedAt     DateTime @default(now())
+
+  @@map("approval_actions")
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+}
+
+// ============================================================
+// INTEGRATIONS — public API webhook subscriptions & delivery log.
+// Fire-and-forget dispatch this pass (no queue — that's Phase 7).
+// ============================================================
+
+model WebhookSubscription {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  url            String
+  eventTypes     String[]
+  secret         String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  deliveries WebhookDelivery[]
+
+  @@index([organizationId])
+  @@map("webhook_subscriptions")
+}
+
+model WebhookDelivery {
+  id             String   @id @default(cuid())
+  subscriptionId String
+  subscription   WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  eventType      String
+  payload        Json
+  statusCode     Int?
+  attemptedAt    DateTime @default(now())
+  success        Boolean  @default(false)
+
+  @@index([subscriptionId])
+  @@map("webhook_deliveries")
+}
+
+// ============================================================
 // MODULE 1: EMPLOYEE & PAYROLL
 // ============================================================
 
 model Employee {
   id               String         @id @default(cuid())
-  employeeCode     String         @unique
+  organizationId   String
+  organization     Organization   @relation(fields: [organizationId], references: [id])
+  employeeCode     String
   userId           String?        @unique
   user             User?          @relation(fields: [userId], references: [id])
   firstName        String
   lastName         String
-  email            String?        @unique
+  email            String?
   phone            String?
   nationality      String?
-  nricOrFin        String?        @unique
+  identityDocType  String?        // country-agnostic: "NRIC_FIN","PASSPORT","SSN","AADHAAR",... (no DocumentType catalog until Phase 2)
+  identityDocNumber String?       // encrypted at rest, same mechanism as the legacy nricOrFin
   dateOfBirth      DateTime?
   employmentType   EmploymentType @default(FULL_TIME)
   jobTitle         String?
   department       String?
-  skills           String[]
+  skills           String[]       // deprecated flat list — write-only, never rendered; EmployeeSkill is the real skill matrix going forward
   dailyRate        Decimal        @db.Decimal(10, 2)
   hourlyRate       Decimal?       @db.Decimal(10, 2)
   overtimeRate     Decimal?       @db.Decimal(10, 2)
   allowances       Decimal        @default(0) @db.Decimal(10, 2)
-  cpfApplicable    Boolean        @default(false)
+  statutorySchemeId String?
+  statutoryScheme  StatutoryScheme? @relation(fields: [statutorySchemeId], references: [id])
   bankName         String?
   bankAccountNo    String?
   joinDate         DateTime
@@ -95,6 +478,9 @@ model Employee {
   emergencyContact String?
   address          String?
   photoUrl         String?
+  managerId        String?
+  manager          Employee?      @relation("EmployeeManager", fields: [managerId], references: [id])
+  directReports    Employee[]     @relation("EmployeeManager")
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -103,11 +489,26 @@ model Employee {
   projectAssignments ProjectEmployee[]
   expenseSubmissions Expense[]
   equipmentIssues  EquipmentIssue[]
+  assetUnits       AssetUnit[]
   certifications   EmployeeCertification[]
   leaveRequests    LeaveRequest[]
   leaveBalances    LeaveBalance[]
   approvedLeaves   LeaveRequest[] @relation("LeaveApprover")
 
+  jobRequisitionsRequested JobRequisition[] @relation("RequisitionRequester")
+  applicationHire  Application? @relation("ApplicationHire")
+  checklistInstances ChecklistInstance[]
+  employeeSkills   EmployeeSkill[]
+  performanceReviews PerformanceReview[]
+  performanceReviewsAsReviewer PerformanceReview[] @relation("PerformanceReviewer")
+  employeeCases    EmployeeCase[]
+  employeeCasesAssigned EmployeeCase[] @relation("CaseAssignee")
+
+  @@unique([organizationId, employeeCode])
+  @@unique([organizationId, email])
+  @@unique([organizationId, identityDocNumber])
+  @@index([organizationId])
+  @@index([managerId])
   @@map("employees")
 }
 
@@ -119,7 +520,9 @@ enum EmploymentType {
 }
 
 model EmployeeCertification {
-  id           String    @id @default(cuid())
+  id             String    @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
   employeeId   String
   employee     Employee  @relation(fields: [employeeId], references: [id])
   name         String
@@ -131,11 +534,14 @@ model EmployeeCertification {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
+  @@index([organizationId])
   @@map("employee_certifications")
 }
 
 model Attendance {
   id           String           @id @default(cuid())
+  organizationId String
+  organization Organization     @relation(fields: [organizationId], references: [id])
   employeeId   String
   employee     Employee         @relation(fields: [employeeId], references: [id])
   projectId    String?
@@ -155,6 +561,7 @@ model Attendance {
   updatedAt    DateTime         @updatedAt
 
   @@unique([employeeId, date, projectId])
+  @@index([organizationId])
   @@map("attendances")
 }
 
@@ -174,13 +581,19 @@ enum TimesheetApprovalStatus {
 
 model PayrollRecord {
   id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
   projectId      String
   project        Project  @relation(fields: [projectId], references: [id])
   employeeId     String
   month          Int
   year           Int
+  currencyCode   String   @default("SGD")
   daysWorked     Int      @default(0)
   overtimeDays   Decimal  @default(0) @db.Decimal(5, 2)
+  paidLeaveDays  Decimal  @default(0) @db.Decimal(5, 2)
+  unpaidLeaveDays Decimal @default(0) @db.Decimal(5, 2)
+  leaveDeduction Decimal  @default(0) @db.Decimal(10, 2)
   basicPay       Decimal  @default(0) @db.Decimal(10, 2)
   overtimePay    Decimal  @default(0) @db.Decimal(10, 2)
   allowances     Decimal  @default(0) @db.Decimal(10, 2)
@@ -190,10 +603,13 @@ model PayrollRecord {
   totalCostToCompany Decimal @default(0) @db.Decimal(10, 2)
   isPaid         Boolean  @default(false)
   paidAt         DateTime?
+  payrollRunId   String?
+  payrollRun     PayrollRun? @relation(fields: [payrollRunId], references: [id])
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@unique([projectId, employeeId, month, year])
+  @@index([organizationId])
   @@map("payroll_records")
 }
 
@@ -203,6 +619,8 @@ model PayrollRecord {
 
 model LeavePolicy {
   id              String    @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
   name            String
   leaveType       LeaveType
   daysPerYear     Int
@@ -213,12 +631,14 @@ model LeavePolicy {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  @@unique([leaveType])
+  @@unique([organizationId, leaveType])
   @@map("leave_policies")
 }
 
 model LeaveBalance {
   id          String    @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
   employeeId  String
   employee    Employee  @relation(fields: [employeeId], references: [id])
   year        Int
@@ -231,12 +651,15 @@ model LeaveBalance {
   updatedAt   DateTime  @updatedAt
 
   @@unique([employeeId, year, leaveType])
+  @@index([organizationId])
   @@map("leave_balances")
 }
 
 model LeaveRequest {
   id               String      @id @default(cuid())
-  leaveCode        String      @unique
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  leaveCode        String
   employeeId       String
   employee         Employee    @relation(fields: [employeeId], references: [id])
   leaveType        LeaveType
@@ -253,9 +676,12 @@ model LeaveRequest {
   rejectionReason  String?
   cancelledAt      DateTime?
   attachmentUrl    String?
+  approvalInstanceId String?   @unique
+  approvalInstance ApprovalInstance? @relation(fields: [approvalInstanceId], references: [id])
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
+  @@unique([organizationId, leaveCode])
   @@map("leave_requests")
 }
 
@@ -285,7 +711,9 @@ enum LeaveStatus {
 
 model Client {
   id           String    @id @default(cuid())
-  code         String    @unique
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  code         String
   name         String
   contactName  String?
   contactEmail String?
@@ -301,13 +729,17 @@ model Client {
   projects     Project[]
   quotations   Quotation[]
   invoices     Invoice[]
+  portalUsers  ClientPortalUser[]
 
+  @@unique([organizationId, code])
   @@map("clients")
 }
 
 model Project {
   id               String        @id @default(cuid())
-  projectCode      String        @unique
+  organizationId   String
+  organization     Organization  @relation(fields: [organizationId], references: [id])
+  projectCode      String
   name             String
   description      String?
   clientId         String
@@ -329,11 +761,14 @@ model Project {
   employees        ProjectEmployee[]
   expenses         Expense[]
   equipmentIssues  EquipmentIssue[]
+  assetUnits       AssetUnit[]
   invoices         Invoice[]
   attendances      Attendance[]
   payrollRecords   PayrollRecord[]
   notifications    Notification[]
+  payrollRuns      PayrollRun[]
 
+  @@unique([organizationId, projectCode])
   @@map("projects")
 }
 
@@ -347,6 +782,8 @@ enum ProjectStatus {
 
 model ProjectEmployee {
   id          String    @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
   projectId   String
   project     Project   @relation(fields: [projectId], references: [id])
   employeeId  String
@@ -358,6 +795,7 @@ model ProjectEmployee {
   isActive    Boolean   @default(true)
 
   @@unique([projectId, employeeId])
+  @@index([organizationId])
   @@map("project_employees")
 }
 
@@ -367,7 +805,9 @@ model ProjectEmployee {
 
 model Expense {
   id           String          @id @default(cuid())
-  expenseCode  String          @unique
+  organizationId String
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  expenseCode  String
   projectId    String
   project      Project         @relation(fields: [projectId], references: [id])
   submittedById String
@@ -384,6 +824,7 @@ model Expense {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
+  @@unique([organizationId, expenseCode])
   @@map("expenses")
 }
 
@@ -409,7 +850,9 @@ enum ExpenseStatus {
 
 model Supplier {
   id             String   @id @default(cuid())
-  supplierCode   String   @unique
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  supplierCode   String
   name           String
   contactPerson  String?
   email          String?
@@ -424,33 +867,43 @@ model Supplier {
   updatedAt      DateTime @updatedAt
 
   equipmentItems EquipmentItem[]
+  equipmentPurchases EquipmentPurchase[]
+  maintenanceRecords MaintenanceRecord[]
+  portalUsers    VendorPortalUser[]
 
+  @@unique([organizationId, supplierCode])
   @@map("suppliers")
 }
 
 model EquipmentCategory {
   id          String      @id @default(cuid())
-  name        String      @unique
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  name        String
   description String?
   createdAt   DateTime    @default(now())
 
   items       EquipmentItem[]
 
+  @@unique([organizationId, name])
   @@map("equipment_categories")
 }
 
 model EquipmentItem {
   id                String            @id @default(cuid())
-  itemCode          String            @unique
+  organizationId    String
+  organization      Organization      @relation(fields: [organizationId], references: [id])
+  itemCode          String
   name              String
   description       String?
   categoryId        String
   category          EquipmentCategory @relation(fields: [categoryId], references: [id])
   unit              String            @default("unit")
   unitCost          Decimal           @db.Decimal(10, 2)
-  totalQuantity     Int               @default(0)
-  availableQuantity Int               @default(0)
+  currencyCode      String            @default("SGD")
+  trackingMode      EquipmentTrackingMode @default(BULK)
   minStockLevel     Int               @default(5)
+  reorderQty        Int?
   depreciationRate  Decimal           @default(0) @db.Decimal(5, 4)
   usefulLifeDays    Int?
   supplierName      String?
@@ -458,36 +911,189 @@ model EquipmentItem {
   supplierId        String?
   supplier          Supplier?         @relation(fields: [supplierId], references: [id])
   isActive          Boolean           @default(true)
+  // Bulk (SKU-level) maintenance reminder. Serialized items use
+  // AssetUnit.nextMaintenanceAt instead — per-unit, not per-SKU.
   nextMaintenanceAt DateTime?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
   purchases        EquipmentPurchase[]
   issues           EquipmentIssue[]
+  warehouseStocks  WarehouseStock[]
+  assetUnits       AssetUnit[]
+  maintenanceRecords MaintenanceRecord[]
 
+  @@unique([organizationId, itemCode])
   @@map("equipment_items")
+}
+
+enum EquipmentTrackingMode {
+  BULK
+  SERIALIZED
+}
+
+model Warehouse {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  code           String
+  name           String
+  address        String?
+  isActive       Boolean  @default(true)
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  stocks         WarehouseStock[]
+  assetUnits     AssetUnit[]
+  purchases      EquipmentPurchase[]
+  issues         EquipmentIssue[]
+
+  @@unique([organizationId, code])
+  @@map("warehouses")
+}
+
+// Running stock balance per item+warehouse, for BULK-tracked items only.
+// SERIALIZED items derive on-hand count from AssetUnit rows instead —
+// deliberately not duplicated here, to avoid a second counter that can drift.
+model WarehouseStock {
+  id             String    @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  itemId         String
+  item           EquipmentItem @relation(fields: [itemId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse @relation(fields: [warehouseId], references: [id])
+  quantityOnHand Int       @default(0)
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([itemId, warehouseId])
+  @@index([organizationId])
+  @@map("warehouse_stocks")
+}
+
+// One row per physical serialized unit (a specific generator, vehicle,
+// laptop, ...). Only created for EquipmentItem.trackingMode = SERIALIZED.
+model AssetUnit {
+  id                String          @id @default(cuid())
+  organizationId    String
+  organization      Organization    @relation(fields: [organizationId], references: [id])
+  itemId            String
+  item              EquipmentItem   @relation(fields: [itemId], references: [id])
+  warehouseId       String
+  warehouse         Warehouse       @relation(fields: [warehouseId], references: [id])
+  assetTag          String
+  serialNumber      String?
+  status            AssetUnitStatus @default(IN_STOCK)
+  currentEmployeeId String?
+  currentEmployee   Employee?       @relation(fields: [currentEmployeeId], references: [id])
+  currentProjectId  String?
+  currentProject    Project?        @relation(fields: [currentProjectId], references: [id])
+  purchaseCost      Decimal         @db.Decimal(10, 2)
+  purchaseDate      DateTime        @db.Date
+  nextMaintenanceAt DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  issues            EquipmentIssue[]
+  maintenanceRecords MaintenanceRecord[]
+  depreciationEntries DepreciationEntry[]
+
+  @@unique([organizationId, assetTag])
+  @@index([organizationId])
+  @@map("asset_units")
+}
+
+enum AssetUnitStatus {
+  IN_STOCK
+  ISSUED
+  IN_MAINTENANCE
+  LOST
+  DAMAGED
+  RETIRED
+  DISPOSED
+}
+
+// Append-only service log. Exactly one of itemId (bulk, SKU-level) /
+// assetUnitId (serialized, per-unit) is set — enforced in the route, same
+// polymorphic-ish convention as CustomFieldValue's entityType/entityId.
+model MaintenanceRecord {
+  id             String      @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  itemId         String?
+  item           EquipmentItem? @relation(fields: [itemId], references: [id])
+  assetUnitId    String?
+  assetUnit      AssetUnit?  @relation(fields: [assetUnitId], references: [id])
+  performedAt    DateTime    @db.Date
+  performedBy    String?
+  description    String
+  cost           Decimal?    @default(0) @db.Decimal(10, 2)
+  vendorId       String?
+  vendor         Supplier?   @relation(fields: [vendorId], references: [id])
+  nextDueDate    DateTime?   @db.Date
+  notes          String?
+  createdAt      DateTime    @default(now())
+
+  @@index([organizationId])
+  @@map("maintenance_records")
+}
+
+// Serialized-assets-only. Bulk consumables are expensed, not depreciated —
+// standard practice, and there's no single per-unit cost to depreciate for
+// a bulk SKU.
+model DepreciationEntry {
+  id                     String   @id @default(cuid())
+  organizationId         String
+  organization           Organization @relation(fields: [organizationId], references: [id])
+  assetUnitId            String
+  assetUnit              AssetUnit @relation(fields: [assetUnitId], references: [id])
+  periodMonth            Int
+  periodYear             Int
+  depreciationAmount     Decimal  @db.Decimal(10, 2)
+  accumulatedDepreciation Decimal @db.Decimal(10, 2)
+  bookValue              Decimal  @db.Decimal(10, 2)
+  createdAt              DateTime @default(now())
+
+  @@unique([assetUnitId, periodMonth, periodYear])
+  @@index([organizationId])
+  @@map("depreciation_entries")
 }
 
 model EquipmentPurchase {
   id           String        @id @default(cuid())
+  organizationId String
+  organization Organization  @relation(fields: [organizationId], references: [id])
   itemId       String
   item         EquipmentItem @relation(fields: [itemId], references: [id])
+  warehouseId  String
+  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id])
+  receiptCode  String?
   quantity     Int
   unitCost     Decimal       @db.Decimal(10, 2)
   totalCost    Decimal       @db.Decimal(10, 2)
   purchaseDate DateTime      @db.Date
   supplierName String?
+  supplierId   String?
+  supplier     Supplier?     @relation(fields: [supplierId], references: [id])
   invoiceRef   String?
   notes        String?
   createdAt    DateTime      @default(now())
 
+  @@index([organizationId])
   @@map("equipment_purchases")
 }
 
 model EquipmentIssue {
   id             String                   @id @default(cuid())
+  organizationId String
+  organization   Organization             @relation(fields: [organizationId], references: [id])
   itemId         String
   item           EquipmentItem            @relation(fields: [itemId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse                @relation(fields: [warehouseId], references: [id])
+  assetUnitId    String?
+  assetUnit      AssetUnit?               @relation(fields: [assetUnitId], references: [id])
   projectId      String
   project        Project                  @relation(fields: [projectId], references: [id])
   employeeId     String
@@ -506,6 +1112,7 @@ model EquipmentIssue {
   createdAt      DateTime                 @default(now())
   updatedAt      DateTime                 @updatedAt
 
+  @@index([organizationId])
   @@map("equipment_issues")
 }
 
@@ -524,7 +1131,9 @@ enum InventoryTransactionType {
 
 model Quotation {
   id              String          @id @default(cuid())
-  quotationCode   String          @unique
+  organizationId  String
+  organization    Organization    @relation(fields: [organizationId], references: [id])
+  quotationCode   String
   clientId        String
   client          Client          @relation(fields: [clientId], references: [id])
   projectId       String?         @unique
@@ -532,6 +1141,7 @@ model Quotation {
   title           String
   description     String?
   validUntil      DateTime
+  currencyCode    String          @default("SGD")
   subtotal        Decimal         @default(0) @db.Decimal(12, 2)
   discountAmount  Decimal         @default(0) @db.Decimal(12, 2)
   taxRate         Decimal         @default(0.09) @db.Decimal(5, 4)
@@ -552,6 +1162,7 @@ model Quotation {
 
   lineItems       QuotationLineItem[]
 
+  @@unique([organizationId, quotationCode])
   @@map("quotations")
 }
 
@@ -566,6 +1177,8 @@ enum QuotationStatus {
 
 model QuotationLineItem {
   id            String    @id @default(cuid())
+  organizationId String
+  organization  Organization @relation(fields: [organizationId], references: [id])
   quotationId   String
   quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
   description   String
@@ -573,10 +1186,12 @@ model QuotationLineItem {
   quantity      Decimal   @db.Decimal(10, 2)
   unit          String    @default("days")
   unitRate      Decimal   @db.Decimal(10, 2)
+  currencyCode  String    @default("SGD")
   amount        Decimal   @db.Decimal(12, 2)
   sortOrder     Int       @default(0)
   createdAt     DateTime  @default(now())
 
+  @@index([organizationId])
   @@map("quotation_line_items")
 }
 
@@ -586,13 +1201,16 @@ model QuotationLineItem {
 
 model Invoice {
   id              String        @id @default(cuid())
-  invoiceCode     String        @unique
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id])
+  invoiceCode     String
   clientId        String
   client          Client        @relation(fields: [clientId], references: [id])
   projectId       String
   project         Project       @relation(fields: [projectId], references: [id])
   issueDate       DateTime      @db.Date
   dueDate         DateTime      @db.Date
+  currencyCode    String        @default("SGD")
   subtotal        Decimal       @default(0) @db.Decimal(12, 2)
   taxRate         Decimal       @default(0.09) @db.Decimal(5, 4)
   taxAmount       Decimal       @default(0) @db.Decimal(12, 2)
@@ -610,6 +1228,7 @@ model Invoice {
   lineItems       InvoiceLineItem[]
   payments        Payment[]
 
+  @@unique([organizationId, invoiceCode])
   @@map("invoices")
 }
 
@@ -625,30 +1244,38 @@ enum InvoiceStatus {
 
 model InvoiceLineItem {
   id          String   @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
   invoiceId   String
   invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   description String
   quantity    Decimal  @db.Decimal(10, 2)
   unit        String   @default("days")
   unitRate    Decimal  @db.Decimal(10, 2)
+  currencyCode String  @default("SGD")
   amount      Decimal  @db.Decimal(12, 2)
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
 
+  @@index([organizationId])
   @@map("invoice_line_items")
 }
 
 model Payment {
   id            String   @id @default(cuid())
+  organizationId String
+  organization  Organization @relation(fields: [organizationId], references: [id])
   invoiceId     String
   invoice       Invoice  @relation(fields: [invoiceId], references: [id])
   amount        Decimal  @db.Decimal(10, 2)
+  currencyCode  String   @default("SGD")
   paymentDate   DateTime @db.Date
   paymentMethod String?
   reference     String?
   notes         String?
   createdAt     DateTime @default(now())
 
+  @@index([organizationId])
   @@map("payments")
 }
 
@@ -658,10 +1285,12 @@ model Payment {
 
 model WorkPass {
   id             String         @id @default(cuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id])
   employeeId     String
   employee       Employee       @relation(fields: [employeeId], references: [id])
   passType       WorkPassType
-  passNumber     String         @unique
+  passNumber     String
   issuedBy       String         @default("MOM")
   issueDate      DateTime       @db.Date
   expiryDate     DateTime       @db.Date
@@ -673,6 +1302,7 @@ model WorkPass {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
+  @@unique([organizationId, passNumber])
   @@map("work_passes")
 }
 
@@ -694,6 +1324,8 @@ enum WorkPassStatus {
 
 model WorkPassRenewal {
   id            String    @id @default(cuid())
+  organizationId String
+  organization  Organization @relation(fields: [organizationId], references: [id])
   workPassId    String
   workPass      WorkPass  @relation(fields: [workPassId], references: [id])
   oldPassNumber String
@@ -704,6 +1336,7 @@ model WorkPassRenewal {
   documentUrl   String?
   notes         String?
 
+  @@index([organizationId])
   @@map("work_pass_renewals")
 }
 
@@ -713,6 +1346,8 @@ model WorkPassRenewal {
 
 model Notification {
   id          String               @id @default(cuid())
+  organizationId String
+  organization Organization        @relation(fields: [organizationId], references: [id])
   userId      String?
   user        User?                @relation(fields: [userId], references: [id])
   projectId   String?
@@ -730,6 +1365,7 @@ model Notification {
   sentAt      DateTime?
   createdAt   DateTime             @default(now())
 
+  @@index([organizationId])
   @@map("notifications")
 }
 
@@ -768,7 +1404,9 @@ enum NotificationChannel {
 
 model NotificationPreference {
   id          String              @id @default(cuid())
-  userId      String              @unique
+  organizationId String
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  userId      String
   type        NotificationType
   inApp       Boolean             @default(true)
   email       Boolean             @default(true)
@@ -778,6 +1416,7 @@ model NotificationPreference {
   updatedAt   DateTime            @updatedAt
 
   @@unique([userId, type])
+  @@index([organizationId])
   @@map("notification_preferences")
 }
 
@@ -787,6 +1426,8 @@ model NotificationPreference {
 
 model AuditLog {
   id         String   @id @default(cuid())
+  organizationId String?
+  organization Organization? @relation(fields: [organizationId], references: [id])
   userId     String?
   user       User?    @relation(fields: [userId], references: [id])
   action     String
@@ -798,11 +1439,14 @@ model AuditLog {
   userAgent  String?
   createdAt  DateTime @default(now())
 
+  @@index([organizationId])
   @@map("audit_logs")
 }
 
 // ============================================================
 // PASSWORD RESET
+// (deliberately NOT tenant-scoped — always looked up by unique
+// token and joined through User, never listed by organization)
 // ============================================================
 
 model PasswordResetToken {
@@ -823,6 +1467,8 @@ model PasswordResetToken {
 
 model Holiday {
   id          String      @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
   name        String
   date        DateTime    @db.Date
   type        HolidayType @default(PUBLIC_HOLIDAY)
@@ -832,7 +1478,7 @@ model Holiday {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  @@unique([date, name])
+  @@unique([organizationId, date, name])
   @@map("holidays")
 }
 
@@ -841,4 +1487,397 @@ enum HolidayType {
   COMPANY_HOLIDAY
   HALF_DAY
   WORKING_SATURDAY
+}
+
+// ============================================================
+// PHASE 1 — HR CORE
+// ============================================================
+
+// ---- Statutory contribution rule engine ----
+// SG_CPF rows delegate to the existing lib/cpf.ts graduated-rate calculator
+// unchanged; FLAT_RATE rows use employeeRate/employerRate/wageCeiling below.
+// This is what replaces Employee.cpfApplicable's hardcoded flag.
+model StatutoryScheme {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  code           String
+  name           String
+  strategy       StatutoryStrategy
+  employeeRate   Decimal? @db.Decimal(5, 4)
+  employerRate   Decimal? @db.Decimal(5, 4)
+  wageCeiling    Decimal? @db.Decimal(10, 2)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  employees      Employee[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("statutory_schemes")
+}
+
+enum StatutoryStrategy {
+  SG_CPF
+  FLAT_RATE
+}
+
+// ---- Recruitment ----
+model JobRequisition {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  code           String
+  title          String
+  department     String?
+  employmentType EmploymentType @default(FULL_TIME)
+  headcount      Int      @default(1)
+  status         RequisitionStatus @default(OPEN)
+  description    String?
+  requestedById  String?
+  requestedBy    Employee? @relation("RequisitionRequester", fields: [requestedById], references: [id])
+  openedAt       DateTime @default(now())
+  closedAt       DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  applications   Application[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("job_requisitions")
+}
+
+enum RequisitionStatus {
+  OPEN
+  ON_HOLD
+  FILLED
+  CANCELLED
+}
+
+model Candidate {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  fullName       String
+  email          String?
+  phone          String?
+  resumeUrl      String?
+  source         String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  applications   Application[]
+
+  @@index([organizationId])
+  @@map("candidates")
+}
+
+model Application {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  requisitionId   String
+  requisition     JobRequisition @relation(fields: [requisitionId], references: [id])
+  candidateId     String
+  candidate       Candidate @relation(fields: [candidateId], references: [id])
+  stage           ApplicationStage @default(APPLIED)
+  rejectionReason String?
+  hiredEmployeeId String?  @unique
+  hiredEmployee   Employee? @relation("ApplicationHire", fields: [hiredEmployeeId], references: [id])
+  appliedAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([requisitionId, candidateId])
+  @@index([organizationId])
+  @@map("applications")
+}
+
+enum ApplicationStage {
+  APPLIED
+  SCREENING
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+  WITHDRAWN
+}
+
+// ---- Onboarding / Offboarding — one shared model family, parameterized
+// by `purpose`, rather than two parallel sets of tables. Instance tasks are
+// snapshotted from the template at instantiation time so later template
+// edits don't retroactively change an in-flight checklist. ----
+enum ChecklistPurpose {
+  ONBOARDING
+  OFFBOARDING
+}
+
+model ChecklistTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  purpose        ChecklistPurpose
+  name           String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tasks          ChecklistTemplateTask[]
+  instances      ChecklistInstance[]
+
+  @@index([organizationId, purpose])
+  @@map("checklist_templates")
+}
+
+model ChecklistTemplateTask {
+  id             String   @id @default(cuid())
+  templateId     String
+  template       ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  sortOrder      Int      @default(0)
+  dueOffsetDays  Int?
+  assigneeRoleId String?
+  assigneeRole   Role?    @relation(fields: [assigneeRoleId], references: [id])
+
+  @@map("checklist_template_tasks")
+}
+
+model ChecklistInstance {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  templateId     String
+  template       ChecklistTemplate @relation(fields: [templateId], references: [id])
+  employeeId     String
+  employee       Employee @relation(fields: [employeeId], references: [id])
+  purpose        ChecklistPurpose
+  status         ChecklistInstanceStatus @default(IN_PROGRESS)
+  startDate      DateTime @db.Date
+  completedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tasks          ChecklistInstanceTask[]
+
+  @@index([organizationId, purpose])
+  @@map("checklist_instances")
+}
+
+enum ChecklistInstanceStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model ChecklistInstanceTask {
+  id             String   @id @default(cuid())
+  instanceId     String
+  instance       ChecklistInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  templateTaskId String?
+  title          String
+  description    String?
+  dueDate        DateTime? @db.Date
+  isDone         Boolean  @default(false)
+  doneAt         DateTime?
+  doneById       String?
+  sortOrder      Int      @default(0)
+
+  @@map("checklist_instance_tasks")
+}
+
+// ---- Skills & Competency ----
+model SkillDefinition {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  category       String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  employeeSkills EmployeeSkill[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("skill_definitions")
+}
+
+model EmployeeSkill {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  employeeId      String
+  employee        Employee @relation(fields: [employeeId], references: [id])
+  skillId         String
+  skill           SkillDefinition @relation(fields: [skillId], references: [id])
+  proficiency     SkillProficiency @default(BEGINNER)
+  yearsExperience Decimal? @db.Decimal(4, 1)
+  certifiedAt     DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([employeeId, skillId])
+  @@index([organizationId])
+  @@map("employee_skills")
+}
+
+enum SkillProficiency {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+// ---- Performance ----
+model PerformanceReviewCycle {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  periodStart    DateTime @db.Date
+  periodEnd      DateTime @db.Date
+  status         ReviewCycleStatus @default(DRAFT)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  reviews        PerformanceReview[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("performance_review_cycles")
+}
+
+enum ReviewCycleStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
+model PerformanceReview {
+  id                String   @id @default(cuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  cycleId           String
+  cycle             PerformanceReviewCycle @relation(fields: [cycleId], references: [id])
+  employeeId        String
+  employee          Employee @relation(fields: [employeeId], references: [id])
+  reviewerId        String?
+  reviewer          Employee? @relation("PerformanceReviewer", fields: [reviewerId], references: [id])
+  selfAssessment    String?
+  selfRating        Int?
+  managerAssessment String?
+  managerRating     Int?
+  status            PerformanceReviewStatus @default(PENDING_SELF_ASSESSMENT)
+  submittedAt       DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([cycleId, employeeId])
+  @@index([organizationId])
+  @@map("performance_reviews")
+}
+
+enum PerformanceReviewStatus {
+  PENDING_SELF_ASSESSMENT
+  PENDING_MANAGER_REVIEW
+  COMPLETED
+}
+
+// ---- Employee Relations / Case Management ----
+model EmployeeCase {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  caseCode        String
+  employeeId      String
+  employee        Employee @relation(fields: [employeeId], references: [id])
+  type            EmployeeCaseType
+  category        String?
+  title           String
+  description     String?
+  status          EmployeeCaseStatus @default(OPEN)
+  priority        EmployeeCasePriority @default(MEDIUM)
+  assignedToId    String?
+  assignedTo      Employee? @relation("CaseAssignee", fields: [assignedToId], references: [id])
+  confidential    Boolean  @default(true)
+  resolvedAt      DateTime?
+  resolutionNotes String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  comments        EmployeeCaseComment[]
+
+  @@unique([organizationId, caseCode])
+  @@index([organizationId])
+  @@map("employee_cases")
+}
+
+enum EmployeeCaseType {
+  GRIEVANCE
+  DISCIPLINARY
+  HELPDESK
+}
+
+enum EmployeeCaseStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum EmployeeCasePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model EmployeeCaseComment {
+  id           String   @id @default(cuid())
+  caseId       String
+  case         EmployeeCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  authorUserId String
+  authorUser   User     @relation(fields: [authorUserId], references: [id])
+  body         String
+  isInternal   Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@map("employee_case_comments")
+}
+
+// ---- Payroll batching ----
+model PayrollRun {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  runCode            String
+  projectId          String?
+  project            Project? @relation(fields: [projectId], references: [id])
+  month              Int
+  year               Int
+  status             PayrollRunStatus @default(COMPLETED)
+  totalPayable       Decimal  @default(0) @db.Decimal(12, 2)
+  totalCostToCompany Decimal  @default(0) @db.Decimal(12, 2)
+  recordCount        Int      @default(0)
+  runById            String?
+  runAt              DateTime @default(now())
+  paidAt             DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  records            PayrollRecord[]
+
+  @@unique([organizationId, runCode])
+  @@index([organizationId])
+  @@map("payroll_runs")
+}
+
+enum PayrollRunStatus {
+  COMPLETED
+  PAID
 }

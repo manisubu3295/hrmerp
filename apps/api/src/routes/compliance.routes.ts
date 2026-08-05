@@ -1,9 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import prisma from '../lib/prisma';
+import prisma, { prismaUnscoped } from '../lib/prisma';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 import { AppError } from '../middleware/error.middleware';
-import { requireRoles } from '../middleware/auth.middleware';
-import { UserRole, WorkPassStatus, WORK_PASS_ALERT_DAYS } from '@sankoerp/shared';
+import { requirePermission } from '../middleware/auth.middleware';
+import { WorkPassStatus, WORK_PASS_ALERT_DAYS } from '@sankoerp/shared';
 import { Prisma } from '@prisma/client';
 import { emitEvent } from '../lib/events';
 
@@ -47,7 +47,7 @@ router.get('/work-passes', async (req: Request, res: Response, next: NextFunctio
 });
 
 // POST /compliance/work-passes
-router.post('/work-passes', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/work-passes', requirePermission('compliance:create'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const dto = req.body;
     const employee = await prisma.employee.findUnique({ where: { id: dto.employeeId } });
@@ -60,6 +60,7 @@ router.post('/work-passes', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), 
 
     const pass = await prisma.workPass.create({
       data: {
+        organizationId: req.organizationId as string,
         employeeId: dto.employeeId, passType: dto.passType, passNumber: dto.passNumber,
         issueDate: new Date(dto.issueDate), expiryDate: new Date(dto.expiryDate),
         documentUrl: dto.documentUrl, status: 'ACTIVE',
@@ -119,7 +120,7 @@ router.get('/work-passes/:id', async (req: Request, res: Response, next: NextFun
 });
 
 // PATCH /compliance/work-passes/:id/renew
-router.patch('/work-passes/:id/renew', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/work-passes/:id/renew', requirePermission('compliance:renew'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params['id']!;
     const pass = await prisma.workPass.findUnique({ where: { id } });
@@ -129,6 +130,7 @@ router.patch('/work-passes/:id/renew', requireRoles(UserRole.ADMIN, UserRole.SUP
 
     await prisma.workPassRenewal.create({
       data: {
+        organizationId: req.organizationId as string,
         workPassId: id,
         oldPassNumber: pass.passNumber,
         oldExpiryDate: pass.expiryDate,
@@ -153,7 +155,7 @@ router.patch('/work-passes/:id/renew', requireRoles(UserRole.ADMIN, UserRole.SUP
 });
 
 // PATCH /compliance/work-passes/:id/cancel
-router.patch('/work-passes/:id/cancel', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/work-passes/:id/cancel', requirePermission('compliance:cancel'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.workPass.findUnique({ where: { id: req.params['id'] } });
     if (!existing) throw new AppError(404, `Work pass ${req.params['id']} not found`);
@@ -185,6 +187,8 @@ router.get('/employees/:employeeId/can-deploy', async (req: Request, res: Respon
 });
 
 // Exported for cron job
+// Cross-tenant system job (cron-triggered, not a request) — uses prismaUnscoped
+// deliberately, see lib/prisma.ts.
 export async function checkWorkPassExpiries() {
   const today = new Date();
   const alertDays = [WORK_PASS_ALERT_DAYS.CRITICAL, WORK_PASS_ALERT_DAYS.URGENT, WORK_PASS_ALERT_DAYS.WARNING];
@@ -194,7 +198,7 @@ export async function checkWorkPassExpiries() {
     const startOfDay = new Date(new Date(targetDate).setHours(0, 0, 0, 0));
     const endOfDay = new Date(new Date(targetDate).setHours(23, 59, 59, 999));
 
-    const expiringPasses = await prisma.workPass.findMany({
+    const expiringPasses = await prismaUnscoped.workPass.findMany({
       where: {
         status: { in: ['ACTIVE', 'EXPIRING_SOON'] },
         expiryDate: { gte: startOfDay, lte: endOfDay },
@@ -204,9 +208,10 @@ export async function checkWorkPassExpiries() {
 
     for (const pass of expiringPasses) {
       if (days <= WORK_PASS_ALERT_DAYS.URGENT) {
-        await prisma.workPass.update({ where: { id: pass.id }, data: { status: 'EXPIRING_SOON' } });
+        await prismaUnscoped.workPass.update({ where: { id: pass.id }, data: { status: 'EXPIRING_SOON' } });
       }
       emitEvent('workpass.expiring', {
+        organizationId: pass.organizationId,
         workPassId: pass.id,
         employeeId: pass.employeeId,
         employeeName: `${pass.employee.firstName} ${pass.employee.lastName}`,
@@ -218,7 +223,7 @@ export async function checkWorkPassExpiries() {
   }
 
   // Mark expired passes
-  await prisma.workPass.updateMany({
+  await prismaUnscoped.workPass.updateMany({
     where: { status: { in: ['ACTIVE', 'EXPIRING_SOON'] }, expiryDate: { lt: today } },
     data: { status: 'EXPIRED' },
   });

@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
-import { requireRoles } from '../middleware/auth.middleware';
-import { UserRole, INVOICE_OVERDUE_DAYS, WORK_PASS_ALERT_DAYS } from '@sankoerp/shared';
+import { requirePermission } from '../middleware/auth.middleware';
+import { INVOICE_OVERDUE_DAYS, WORK_PASS_ALERT_DAYS } from '@sankoerp/shared';
 import { ProjectStatus, InvoiceStatus } from '@prisma/client';
 
 const router = Router();
@@ -32,7 +32,20 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
         where: { status: { notIn: [InvoiceStatus.PAID, InvoiceStatus.CANCELLED] }, dueDate: { lt: overdueThreshold } },
       }),
       prisma.workPass.count({ where: { expiryDate: { lte: passAlertDate }, status: 'ACTIVE' } }),
-      prisma.equipmentItem.count({ where: { availableQuantity: { lte: 5 } } }).catch(() => 0),
+      (async () => {
+        const items = await prisma.equipmentItem.findMany({
+          where: { isActive: true, trackingMode: 'BULK' },
+          select: { id: true, minStockLevel: true },
+        });
+        if (items.length === 0) return 0;
+        const stocks = await prisma.warehouseStock.groupBy({
+          by: ['itemId'],
+          where: { itemId: { in: items.map((i) => i.id) } },
+          _sum: { quantityOnHand: true },
+        });
+        const onHandByItem = new Map(stocks.map((s) => [s.itemId, s._sum.quantityOnHand ?? 0]));
+        return items.filter((i) => (onHandByItem.get(i.id) ?? 0) <= i.minStockLevel).length;
+      })().catch(() => 0),
       prisma.payment.aggregate({ where: { paymentDate: { gte: monthStart, lte: monthEnd } }, _sum: { amount: true } }),
       prisma.expense.aggregate({ where: { date: { gte: monthStart, lte: monthEnd }, status: 'APPROVED' }, _sum: { amount: true } }),
       prisma.attendance.aggregate({ where: { date: { gte: monthStart, lte: monthEnd } }, _sum: { dailyWage: true, overtimePay: true } }),
@@ -84,7 +97,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /dashboard/projects/:id/burndown
-router.get('/projects/:id/burndown', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/projects/:id/burndown', requirePermission('dashboard:read_advanced'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const project = await prisma.project.findUnique({
       where: { id: req.params['id'] },

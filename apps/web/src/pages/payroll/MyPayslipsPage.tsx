@@ -117,7 +117,7 @@ export default function MyPayslipsPage() {
             <Table>
               <TableHead>
                 <TableRow sx={{ backgroundColor: "#f8fafc" }}>
-                  {["Period", "Project", "Days Worked", "Gross Pay", "CPF (Emp)", "Net Pay", "Status", ""].map(h => (
+                  {["Period", "Project", "Days Worked", "Leave", "Gross Pay", "CPF (Emp)", "Net Pay", "Status", ""].map(h => (
                     <TableCell key={h} sx={{ fontWeight: 700, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                       {h}
                     </TableCell>
@@ -134,6 +134,12 @@ export default function MyPayslipsPage() {
                       </TableCell>
                       <TableCell sx={{ color: "#475569" }}>{p.project?.name ?? "—"}</TableCell>
                       <TableCell>{p.daysWorked}</TableCell>
+                      <TableCell sx={{ color: "#475569", fontSize: "0.8125rem" }}>
+                        {Number(p.paidLeaveDays ?? 0) > 0 && `${p.paidLeaveDays} paid`}
+                        {Number(p.paidLeaveDays ?? 0) > 0 && Number(p.unpaidLeaveDays ?? 0) > 0 && ", "}
+                        {Number(p.unpaidLeaveDays ?? 0) > 0 && `${p.unpaidLeaveDays} unpaid`}
+                        {!Number(p.paidLeaveDays ?? 0) && !Number(p.unpaidLeaveDays ?? 0) && "—"}
+                      </TableCell>
                       <TableCell>{fmt(gross)}</TableCell>
                       <TableCell sx={{ color: "#7c3aed" }}>{fmt(p.cpfEmployee)}</TableCell>
                       <TableCell sx={{ fontWeight: 700, color: "#059669" }}>{fmt(p.totalPayable)}</TableCell>

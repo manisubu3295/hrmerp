@@ -9,11 +9,11 @@ test.describe('Billing Module', () => {
   });
 
   test('displays billing page with summary cards', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /billing|invoices/i }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Billing & Invoices').first()).toBeVisible({ timeout: 10000 });
   });
 
   test('can navigate to create invoice', async ({ page }) => {
-    await page.getByRole('link', { name: /new invoice/i }).click();
+    await page.getByRole('button', { name: /new invoice/i }).click();
     await page.waitForURL('/billing/new');
     await expect(page).toHaveURL('/billing/new');
   });

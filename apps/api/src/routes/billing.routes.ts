@@ -2,14 +2,15 @@ import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 import { AppError } from '../middleware/error.middleware';
-import { requireRoles } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validate';
 import { createInvoiceSchema, recordPaymentSchema } from '../schemas/billing.schema';
 import { generateInvoicePdf } from '../lib/pdf';
 import { sendEmail, invoiceEmailHtml } from '../lib/email';
-import { UserRole, InvoiceStatus } from '@sankoerp/shared';
+import { InvoiceStatus } from '@sankoerp/shared';
 import { Prisma } from '@prisma/client';
 import { emitEvent } from '../lib/events';
+import { dispatchWebhookEvent } from '../lib/webhooks';
 
 const router = Router();
 
@@ -58,7 +59,7 @@ router.get('/invoices', async (req: Request, res: Response, next: NextFunction) 
 });
 
 // POST /billing/invoices
-router.post('/invoices', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), validate(createInvoiceSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/invoices', requirePermission('invoice:create'), validate(createInvoiceSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const dto = req.body;
     const count = await prisma.invoice.count();
@@ -66,6 +67,7 @@ router.post('/invoices', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, User
     const invoiceCode = `INV-${year}-${String(count + 1).padStart(5, '0')}`;
 
     const lineItems = (dto.lineItems as Array<{ description: string; quantity: number; unit?: string; unitRate: number }>).map((item, idx) => ({
+      organizationId: req.organizationId as string,
       description: item.description,
       quantity: item.quantity,
       unit: item.unit ?? 'days',
@@ -81,6 +83,7 @@ router.post('/invoices', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, User
 
     const invoice = await prisma.invoice.create({
       data: {
+        organizationId: req.organizationId as string,
         invoiceCode,
         clientId: dto.clientId,
         projectId: dto.projectId,
@@ -191,7 +194,7 @@ router.get('/invoices/:id/pdf', async (req: Request, res: Response, next: NextFu
 });
 
 // PATCH /billing/invoices/:id/send
-router.patch('/invoices/:id/send', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/invoices/:id/send', requirePermission('invoice:send'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const invoice = await findInvoiceOrFail(req.params['id']!);
     if (!['DRAFT', 'UNPAID'].includes(invoice.status)) {
@@ -227,7 +230,7 @@ router.patch('/invoices/:id/send', requireRoles(UserRole.ADMIN, UserRole.SUPER_A
         const dueDateStr = new Date(invoice.dueDate).toLocaleDateString('en-SG');
         await sendEmail({
           to: invoice.client.contactEmail,
-          subject: `Invoice ${invoice.invoiceCode} from SankoERP`,
+          subject: `Invoice ${invoice.invoiceCode} from Aadhirai HRM OS`,
           html: invoiceEmailHtml(invoice.invoiceCode, invoice.client.name, amountStr, dueDateStr),
           attachments: [{ filename: `${invoice.invoiceCode}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
         });
@@ -242,7 +245,7 @@ router.patch('/invoices/:id/send', requireRoles(UserRole.ADMIN, UserRole.SUPER_A
 });
 
 // POST /billing/invoices/:id/payments
-router.post('/invoices/:id/payments', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), validate(recordPaymentSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/invoices/:id/payments', requirePermission('invoice:record_payment'), validate(recordPaymentSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params['id']!;
     const invoice = await findInvoiceOrFail(id);
@@ -256,6 +259,7 @@ router.post('/invoices/:id/payments', requireRoles(UserRole.ADMIN, UserRole.SUPE
 
     const payment = await prisma.payment.create({
       data: {
+        organizationId: req.organizationId as string,
         invoiceId: id,
         amount: dto.amount,
         paymentDate: new Date(dto.paymentDate),
@@ -274,7 +278,16 @@ router.post('/invoices/:id/payments', requireRoles(UserRole.ADMIN, UserRole.SUPE
       data: { paidAmount: newPaid, outstandingAmount: Math.max(0, newOutstanding), status: newStatus },
     });
 
-    emitEvent('payment.received', { invoiceId: id, invoiceCode: invoice.invoiceCode, amount: dto.amount, clientId: invoice.clientId });
+    emitEvent('payment.received', { organizationId: req.organizationId, invoiceId: id, invoiceCode: invoice.invoiceCode, amount: dto.amount, clientId: invoice.clientId });
+
+    if (newStatus === 'PAID') {
+      dispatchWebhookEvent(req.organizationId as string, 'invoice.paid', {
+        invoiceId: id,
+        invoiceCode: invoice.invoiceCode,
+        totalAmount: Number(invoice.totalAmount),
+        clientId: invoice.clientId,
+      });
+    }
 
     res.status(201).json({
       success: true,
@@ -284,7 +297,7 @@ router.post('/invoices/:id/payments', requireRoles(UserRole.ADMIN, UserRole.SUPE
 });
 
 // PATCH /billing/invoices/:id/cancel
-router.patch('/invoices/:id/cancel', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/invoices/:id/cancel', requirePermission('invoice:cancel'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const invoice = await findInvoiceOrFail(req.params['id']!);
     if (invoice.status === 'PAID') throw new AppError(400, 'Cannot cancel a paid invoice');

@@ -18,13 +18,13 @@ export interface QuotationTemplate {
   createdAt: string;
 }
 
-const STORAGE_KEY = "sankoerp_quotation_templates";
+const STORAGE_KEY = "aadhirai_quotation_templates";
 
 export const DEFAULT_TERMS = `1. Payment is due within 30 days of invoice date.
 2. This quotation is valid for the period stated above.
 3. Prices are in Singapore Dollars (SGD) and inclusive of GST where stated.
 4. Any variation or additional works will be subject to separate quotation.
-5. Sanko Engineering reserves the right to review pricing if project scope changes.`;
+5. Aadhirai reserves the right to review pricing if project scope changes.`;
 
 export const BUILT_IN_TEMPLATES: QuotationTemplate[] = [
   {
@@ -62,7 +62,7 @@ export const BUILT_IN_TEMPLATES: QuotationTemplate[] = [
     name: "Cleaning Services",
     category: "Cleaning",
     description: "Daily commercial / industrial cleaning services.",
-    notes: "Cleaning equipment and consumables provided by Sanko. Client to provide water and electricity.",
+    notes: "Cleaning equipment and consumables provided by Aadhirai. Client to provide water and electricity.",
     termsAndCond: DEFAULT_TERMS,
     isBuiltIn: true,
     createdAt: "",

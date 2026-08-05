@@ -24,6 +24,11 @@ import NewExpensePage from '@/pages/expenses/NewExpensePage';
 import EquipmentPage from '@/pages/equipment/EquipmentPage';
 import EquipmentDetailPage from '@/pages/equipment/EquipmentDetailPage';
 import NewEquipmentPage from '@/pages/equipment/NewEquipmentPage';
+import EditEquipmentPage from '@/pages/equipment/EditEquipmentPage';
+import WarehousesPage from '@/pages/equipment/WarehousesPage';
+import AssetUnitsPage from '@/pages/equipment/AssetUnitsPage';
+import AssetUnitDetailPage from '@/pages/equipment/AssetUnitDetailPage';
+import DepreciationPage from '@/pages/equipment/DepreciationPage';
 import SuppliersPage from '@/pages/suppliers/SuppliersPage';
 import SupplierDetailPage from '@/pages/suppliers/SupplierDetailPage';
 import SupplierFormPage from '@/pages/suppliers/SupplierFormPage';
@@ -46,6 +51,13 @@ import MyPayslipsPage from '@/pages/payroll/MyPayslipsPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
 import UsersPage from '@/pages/users/UsersPage';
 import ProfilePage from '@/pages/profile/ProfilePage';
+import RecruitmentPage from '@/pages/recruitment/RecruitmentPage';
+import OnboardingPage from '@/pages/onboarding/OnboardingPage';
+import OffboardingPage from '@/pages/offboarding/OffboardingPage';
+import SkillsPage from '@/pages/skills/SkillsPage';
+import PerformancePage from '@/pages/performance/PerformancePage';
+import MyReviewsPage from '@/pages/performance/MyReviewsPage';
+import EmployeeCasesPage from '@/pages/employee-cases/EmployeeCasesPage';
 import { useAuthStore } from '@/store/auth.store';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -111,6 +123,11 @@ export function Router() {
 
         <Route path="equipment" element={<EquipmentPage />} />
         <Route path="equipment/new" element={<NewEquipmentPage />} />
+        <Route path="equipment/warehouses" element={<WarehousesPage />} />
+        <Route path="equipment/asset-units" element={<AssetUnitsPage />} />
+        <Route path="equipment/asset-units/:id" element={<AssetUnitDetailPage />} />
+        <Route path="equipment/depreciation" element={<DepreciationPage />} />
+        <Route path="equipment/:id/edit" element={<EditEquipmentPage />} />
         <Route path="equipment/:id" element={<EquipmentDetailPage />} />
 
         <Route path="suppliers" element={<SuppliersPage />} />
@@ -142,6 +159,14 @@ export function Router() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="profile" element={<ProfilePage />} />
+
+        <Route path="recruitment" element={<RecruitmentPage />} />
+        <Route path="onboarding" element={<OnboardingPage />} />
+        <Route path="offboarding" element={<OffboardingPage />} />
+        <Route path="skills" element={<SkillsPage />} />
+        <Route path="performance" element={<PerformancePage />} />
+        <Route path="performance/my" element={<MyReviewsPage />} />
+        <Route path="employee-cases" element={<EmployeeCasesPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

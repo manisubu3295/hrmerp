@@ -192,6 +192,12 @@ export default function ProjectDetailPage() {
     enabled: !!id && tab === 3,
   });
 
+  const { data: profitData, isLoading: profitLoading } = useQuery({
+    queryKey: ["project-profit", id],
+    queryFn: () => projectsApi.getProfit(id!),
+    enabled: !!id && tab === 2,
+  });
+
   const assignMut = useMutation({
     mutationFn: (employees: any[]) => projectsApi.assignEmployees(id!, { employees }),
     onSuccess: () => { toast.success("Employee assigned"); qc.invalidateQueries({ queryKey: ["project", id] }); setAssignOpen(false); },
@@ -269,20 +275,10 @@ export default function ProjectDetailPage() {
       {tab === 0 && (
         <Grid container spacing={2.5}>
           <Grid item xs={12} md={8}>
-            <Card sx={{ mb: 2.5 }}>
+            <Card>
               <CardContent sx={{ p: 3 }}>
                 <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", mb: 1.5 }}>Description</Typography>
                 <Typography sx={{ fontSize: "0.875rem", color: "#374151", lineHeight: 1.7 }}>{p.description ?? "No description provided."}</Typography>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent sx={{ p: 3 }}>
-                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", mb: 2 }}>Progress</Typography>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <LinearProgress variant="determinate" value={p.progress ?? 0}
-                    sx={{ flex: 1, height: 8, borderRadius: 99, "& .MuiLinearProgress-bar": { backgroundColor: (p.progress ?? 0) >= 80 ? "#059669" : (p.progress ?? 0) >= 50 ? "#2563eb" : "#f59e0b" } }} />
-                  <Typography sx={{ fontWeight: 800, fontSize: "1rem", color: "#0f172a", minWidth: 40, textAlign: "right" }}>{p.progress ?? 0}%</Typography>
-                </Box>
               </CardContent>
             </Card>
           </Grid>
@@ -370,17 +366,65 @@ export default function ProjectDetailPage() {
 
       {/* Financials */}
       {tab === 2 && (
-        <Grid container spacing={2.5}>
-          {[
-            ["Contract Value", formatCurrency(p.contractValue ?? p.quotedBudget ?? 0), "#0f172a"],
-            ["Total Expenses", formatCurrency(p.totalExpenses ?? 0), "#d97706"],
-            ["Labour Cost", formatCurrency(p.labourCost ?? 0), "#7c3aed"],
-          ].map(([label, value, color]) => (
-            <Grid item xs={12} sm={4} key={label}>
-              <StatCard label={label} value={value} color={color} />
+        profitLoading ? (
+          <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}><CircularProgress /></Box>
+        ) : (() => {
+          const profit = profitData?.data?.data;
+          if (!profit) return <Alert severity="error">Failed to load financials.</Alert>;
+          return (
+            <Grid container spacing={2.5}>
+              <Grid item xs={12} sm={6} md={3}><StatCard label="Quoted Budget" value={formatCurrency(profit.quotedBudget)} /></Grid>
+              <Grid item xs={12} sm={6} md={3}><StatCard label="Total Billed" value={formatCurrency(profit.totalBilled)} color="#2563eb" /></Grid>
+              <Grid item xs={12} sm={6} md={3}><StatCard label="Revenue (Collected)" value={formatCurrency(profit.revenue)} color="#059669" /></Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <StatCard label="Net Profit" value={formatCurrency(profit.netProfit)} color={profit.netProfit >= 0 ? "#059669" : "#dc2626"} />
+              </Grid>
+
+              <Grid item xs={12}>
+                <Card>
+                  <CardContent sx={{ p: 3 }}>
+                    <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", mb: 2 }}>Cost Breakdown</Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={6} sm={3}><InfoField label="Salary Cost" value={formatCurrency(profit.breakdown.salaryCost)} /></Grid>
+                      <Grid item xs={6} sm={3}><InfoField label="Expense Cost" value={formatCurrency(profit.breakdown.expenseCost)} /></Grid>
+                      <Grid item xs={6} sm={3}><InfoField label="Equipment Cost" value={formatCurrency(profit.breakdown.equipmentCost)} /></Grid>
+                      <Grid item xs={6} sm={3}><InfoField label="Overhead Cost" value={formatCurrency(profit.breakdown.overheadCost)} /></Grid>
+                      <Grid item xs={12}><InfoField label="Total Cost" value={formatCurrency(profit.breakdown.totalCost)} /></Grid>
+                    </Grid>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent sx={{ p: 3 }}>
+                    <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", mb: 2 }}>Profit Margin</Typography>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
+                      <Typography sx={{ fontWeight: 800, fontSize: "1.5rem", color: profit.isBelowTargetMargin ? "#dc2626" : "#059669" }}>
+                        {profit.profitMargin}%
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", color: "#94a3b8" }}>vs target {profit.targetMargin}%</Typography>
+                      {profit.isBelowTargetMargin && <Chip label="Below Target" color="error" size="small" />}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent sx={{ p: 3 }}>
+                    <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", mb: 2 }}>Budget Used</Typography>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                      <LinearProgress variant="determinate" value={Math.min(profit.budgetUsedPercent, 100)}
+                        sx={{ flex: 1, height: 8, borderRadius: 99, "& .MuiLinearProgress-bar": { backgroundColor: profit.isOverBudget ? "#dc2626" : "#2563eb" } }} />
+                      <Typography sx={{ fontWeight: 800, fontSize: "1rem", color: "#0f172a", minWidth: 48, textAlign: "right" }}>{profit.budgetUsedPercent}%</Typography>
+                      {profit.isOverBudget && <Chip label="Over Budget" color="error" size="small" />}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
             </Grid>
-          ))}
-        </Grid>
+          );
+        })()
       )}
 
       {/* Materials & Expenses */}

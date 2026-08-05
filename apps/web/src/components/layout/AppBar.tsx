@@ -26,7 +26,7 @@ export function AppBar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { pathname } = useLocation();
   const { user } = useAuthStore();
   const base = "/" + pathname.split("/")[1];
-  const pageInfo = TITLE_MAP[base] ?? { title: "SankoERP", subtitle: "" };
+  const pageInfo = TITLE_MAP[base] ?? { title: "Aadhirai HRM OS", subtitle: "" };
 
   const initials = user?.employee
     ? `${user.employee.firstName[0]}${user.employee.lastName[0]}`

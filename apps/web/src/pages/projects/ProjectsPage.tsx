@@ -5,7 +5,7 @@ import {
   Box, Button, Card, CardContent, Chip, Alert, Typography,
   TextField, Table, TableHead, TableRow, TableCell, TableBody,
   Pagination, InputAdornment, Select, MenuItem, FormControl, InputLabel,
-  LinearProgress, CircularProgress, IconButton, Menu, Divider,
+  CircularProgress, IconButton, Menu, Divider,
 } from "@mui/material";
 import {
   Add, Search, FolderOpen, MoreHoriz, Edit, Visibility,
@@ -164,7 +164,6 @@ export default function ProjectsPage() {
                 <TableCell sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", py: 1.25 }}>Project</TableCell>
                 <TableCell sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", py: 1.25 }}>Client</TableCell>
                 <TableCell sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", py: 1.25 }}>Status</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", py: 1.25 }}>Progress</TableCell>
                 <TableCell sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", py: 1.25 }}>Budget</TableCell>
                 <TableCell sx={{ fontWeight: 600, fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", py: 1.25 }}>Timeline</TableCell>
                 <TableCell sx={{ py: 1.25, width: 48 }} />
@@ -200,19 +199,6 @@ export default function ProjectsPage() {
                       sx={{ fontWeight: 600, fontSize: "0.6875rem", height: 22 }}
                     />
                   </TableCell>
-                  <TableCell sx={{ py: 1.75, minWidth: 140 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
-                      <LinearProgress
-                        variant="determinate"
-                        value={p.progress ?? 0}
-                        sx={{ flex: 1, height: 5, borderRadius: 99, backgroundColor: "#f1f5f9",
-                          "& .MuiLinearProgress-bar": { borderRadius: 99, backgroundColor: (p.progress ?? 0) >= 80 ? "#16a34a" : (p.progress ?? 0) >= 50 ? "#2563eb" : "#d97706" } }}
-                      />
-                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#64748b", minWidth: 28, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                        {p.progress ?? 0}%
-                      </Typography>
-                    </Box>
-                  </TableCell>
                   <TableCell sx={{ py: 1.75 }}>
                     <Typography sx={{ fontSize: "0.875rem", color: "#374151", fontVariantNumeric: "tabular-nums" }}>
                       {p.quotedBudget ? formatCurrency(Number(p.quotedBudget)) : "—"}
@@ -232,7 +218,7 @@ export default function ProjectsPage() {
 
               {!isLoading && projects.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} sx={{ py: 8, textAlign: "center", borderBottom: 0 }}>
+                  <TableCell colSpan={6} sx={{ py: 8, textAlign: "center", borderBottom: 0 }}>
                     <Box sx={{ width: 52, height: 52, borderRadius: "14px", backgroundColor: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 1.5 }}>
                       <FolderOpen sx={{ fontSize: 26, color: "#cbd5e1" }} />
                     </Box>
@@ -246,7 +232,7 @@ export default function ProjectsPage() {
 
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={7} sx={{ py: 6, textAlign: "center", borderBottom: 0 }}>
+                  <TableCell colSpan={6} sx={{ py: 6, textAlign: "center", borderBottom: 0 }}>
                     <CircularProgress size={24} thickness={3} sx={{ color: "#94a3b8" }} />
                   </TableCell>
                 </TableRow>

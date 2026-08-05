@@ -7,7 +7,7 @@ import {
   Pagination, InputAdornment, Select, MenuItem, FormControl, InputLabel,
   CircularProgress, IconButton, Menu, Divider, LinearProgress,
 } from "@mui/material";
-import { Add, Search, RequestQuote, MoreHoriz, Edit, Visibility, AutoAwesome } from "@mui/icons-material";
+import { Add, Search, RequestQuote, MoreHoriz, Visibility, AutoAwesome } from "@mui/icons-material";
 import { quotationsApi } from "@/lib/api";
 import { formatDate, getStatusChipColor, formatCurrency } from "@/lib/utils";
 
@@ -46,10 +46,6 @@ function RowMenu({ quotationId }: { quotationId: string }) {
         <MenuItem onClick={() => { setAnchor(null); navigate(`/quotations/${quotationId}`); }}
           sx={{ fontSize: "0.875rem", gap: 1.5, py: 1 }}>
           <Visibility sx={{ fontSize: 16, color: "#64748b" }} /> View details
-        </MenuItem>
-        <MenuItem onClick={() => { setAnchor(null); navigate(`/quotations/${quotationId}/edit`); }}
-          sx={{ fontSize: "0.875rem", gap: 1.5, py: 1 }}>
-          <Edit sx={{ fontSize: 16, color: "#64748b" }} /> Edit
         </MenuItem>
       </Menu>
     </>

@@ -6,11 +6,13 @@ import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box, Button, Card, CardContent, Typography, TextField, Select, MenuItem,
-  FormControl, InputLabel, Grid, CircularProgress, Alert,
+  FormControl, InputLabel, Grid, CircularProgress, Alert, Autocomplete,
 } from "@mui/material";
 import { ArrowBack, Edit } from "@mui/icons-material";
 import { toast } from "sonner";
-import { employeesApi } from "@/lib/api";
+import { employeesApi, settingsApi } from "@/lib/api";
+
+const IDENTITY_DOC_TYPES = ["NRIC_FIN", "PASSPORT", "NATIONAL_ID", "SSN", "OTHER"];
 
 const schema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -22,13 +24,18 @@ const schema = z.object({
   nationality: z.string().optional(),
   dailyRate: z.coerce.number().min(0, "Daily rate must be 0 or more"),
   allowances: z.coerce.number().min(0).optional(),
-  cpfApplicable: z.boolean().optional(),
+  statutorySchemeId: z.string().optional(),
+  identityDocType: z.string().optional(),
+  identityDocNumber: z.string().optional(),
   bankName: z.string().optional(),
   bankAccountNo: z.string().optional(),
   emergencyContact: z.string().optional(),
   address: z.string().optional(),
+  managerId: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
+
+interface ManagerOption { id: string; firstName: string; lastName: string; employeeCode: string }
 
 function SectionLabel({ children }: { children: string }) {
   return (
@@ -51,9 +58,15 @@ export default function EditEmployeePage() {
 
   const emp = data?.data?.data ?? data?.data ?? {};
 
+  const { data: schemesData } = useQuery({ queryKey: ["statutory-schemes"], queryFn: () => settingsApi.getStatutorySchemes() });
+  const schemes: Array<{ id: string; name: string }> = schemesData?.data?.data ?? [];
+
+  const { data: managersData } = useQuery({ queryKey: ["employees-manager-picker"], queryFn: () => employeesApi.getAll({ limit: 500 }) });
+  const managers: ManagerOption[] = (managersData?.data?.data?.data ?? []).filter((m: ManagerOption) => m.id !== id);
+
   const { control, register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { dailyRate: 0, cpfApplicable: false },
+    defaultValues: { dailyRate: 0, statutorySchemeId: "", identityDocType: "", managerId: "" },
   });
 
   useEffect(() => {
@@ -68,17 +81,21 @@ export default function EditEmployeePage() {
         nationality: emp.nationality ?? "",
         dailyRate: Number(emp.dailyRate ?? 0),
         allowances: Number(emp.allowances ?? 0),
-        cpfApplicable: emp.cpfApplicable ?? false,
+        statutorySchemeId: emp.statutorySchemeId ?? "",
+        identityDocType: emp.identityDocType ?? "",
+        identityDocNumber: emp.identityDocNumber ?? "",
         bankName: emp.bankName ?? "",
         bankAccountNo: emp.bankAccountNo ?? "",
         emergencyContact: emp.emergencyContact ?? "",
         address: emp.address ?? "",
+        managerId: emp.managerId ?? "",
       });
     }
   }, [emp.firstName]);
 
   const mutation = useMutation({
-    mutationFn: (data: FormData) => employeesApi.update(id!, data),
+    mutationFn: (data: FormData) =>
+      employeesApi.update(id!, { ...data, statutorySchemeId: data.statutorySchemeId || null, managerId: data.managerId || null }),
     onSuccess: () => {
       toast.success("Employee updated");
       qc.invalidateQueries({ queryKey: ["employee", id] });
@@ -182,23 +199,50 @@ export default function EditEmployeePage() {
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <FormControl fullWidth>
-                      <InputLabel>CPF Applicable</InputLabel>
-                      <Controller
-                        name="cpfApplicable"
-                        control={control}
-                        render={({ field }) => (
-                          <Select
-                            {...field}
-                            label="CPF Applicable"
-                            value={field.value ? "true" : "false"}
-                            onChange={e => field.onChange(e.target.value === "true")}
-                          >
-                            <MenuItem value="true">Yes (SG Citizen / PR)</MenuItem>
-                            <MenuItem value="false">No (Foreigner / EP)</MenuItem>
-                          </Select>
-                        )}
-                      />
+                      <InputLabel>Statutory Scheme</InputLabel>
+                      <Controller name="statutorySchemeId" control={control} render={({ field }) => (
+                        <Select {...field} label="Statutory Scheme">
+                          <MenuItem value="">None</MenuItem>
+                          {schemes.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                        </Select>
+                      )} />
                     </FormControl>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Controller name="managerId" control={control} render={({ field }) => (
+                      <Autocomplete
+                        options={managers}
+                        getOptionLabel={(m: ManagerOption) => `${m.firstName} ${m.lastName} (${m.employeeCode})`}
+                        value={managers.find(m => m.id === field.value) ?? null}
+                        onChange={(_, v) => field.onChange(v?.id ?? "")}
+                        renderInput={(params) => <TextField {...params} label="Reports To" />}
+                      />
+                    )} />
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Identity Document */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent sx={{ p: 3 }}>
+                <SectionLabel>Identity Document</SectionLabel>
+                <Grid container spacing={2.5}>
+                  <Grid item xs={12} md={6}>
+                    <FormControl fullWidth>
+                      <InputLabel>Document Type</InputLabel>
+                      <Controller name="identityDocType" control={control} render={({ field }) => (
+                        <Select {...field} label="Document Type">
+                          <MenuItem value="">Not specified</MenuItem>
+                          {IDENTITY_DOC_TYPES.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                        </Select>
+                      )} />
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField label="Document Number" fullWidth {...register("identityDocNumber")} />
                   </Grid>
                 </Grid>
               </CardContent>

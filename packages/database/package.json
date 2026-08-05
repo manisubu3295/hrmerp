@@ -8,10 +8,16 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "ts-node --project ../../tsconfig.base.json src/seed.ts",
+    "db:backfill-tenancy": "ts-node --project ../../tsconfig.base.json scripts/backfill-tenancy.ts",
+    "db:backfill-hr-core": "ts-node --project ../../tsconfig.base.json scripts/backfill-hr-core.ts",
+    "db:backfill-timesheet-approval": "ts-node --project ../../tsconfig.base.json scripts/backfill-timesheet-approval.ts",
+    "db:backfill-inventory-warehouses": "ts-node --project ../../tsconfig.base.json scripts/backfill-inventory-warehouses.ts",
+    "db:sync-permissions": "ts-node --project ../../tsconfig.base.json scripts/sync-permissions.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0"
+    "@prisma/client": "^5.22.0",
+    "@sankoerp/shared": "*"
   },
   "devDependencies": {
     "prisma": "^5.22.0",

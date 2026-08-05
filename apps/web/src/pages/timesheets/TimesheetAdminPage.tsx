@@ -8,13 +8,14 @@ import {
 } from "@mui/material";
 import {
   Search, Delete, FilterList, ExpandMore, ExpandLess, Download, Upload,
-  CalendarToday, People, AccessTime,
+  CalendarToday, People, AccessTime, CheckCircle, Cancel,
 } from "@mui/icons-material";
 import { toast } from "sonner";
 import { timesheetsApi, employeesApi, projectsApi } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
 const STATUS_OPTIONS = ["", "PRESENT", "ABSENT", "HALF_DAY", "OVERTIME", "LEAVE"] as const;
+const APPROVAL_STATUS_OPTIONS = ["", "PENDING", "APPROVED", "REJECTED"] as const;
 
 function statusLabel(s: string) {
   return { PRESENT: "Present", ABSENT: "Absent", HALF_DAY: "Half Day", OVERTIME: "Overtime", LEAVE: "Leave" }[s] ?? s;
@@ -28,6 +29,33 @@ function statusColor(s: string): "success" | "error" | "warning" | "info" | "def
   return "default";
 }
 
+function approvalColor(s: string): "success" | "error" | "warning" | "default" {
+  if (s === "APPROVED") return "success";
+  if (s === "REJECTED") return "error";
+  if (s === "PENDING") return "warning";
+  return "default";
+}
+
+function RejectTimesheetDialog({ open, onClose, onConfirm }: { open: boolean; onClose: () => void; onConfirm: (reason: string) => void }) {
+  const [reason, setReason] = useState("");
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: "14px" } }}>
+      <DialogTitle sx={{ fontWeight: 700 }}>Reject Timesheet Entry</DialogTitle>
+      <DialogContent>
+        <TextField fullWidth size="small" label="Rejection Reason (optional)" multiline rows={3}
+          value={reason} onChange={e => setReason(e.target.value)} sx={{ mt: 1 }} />
+      </DialogContent>
+      <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+        <Button onClick={onClose} variant="text" sx={{ textTransform: "none", color: "#64748b" }}>Cancel</Button>
+        <Button onClick={() => { onConfirm(reason); setReason(""); }} variant="contained" color="error"
+          sx={{ borderRadius: "8px", textTransform: "none", fontWeight: 700, boxShadow: "none" }}>
+          Reject
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export default function TimesheetAdminPage() {
@@ -38,11 +66,13 @@ export default function TimesheetAdminPage() {
   const [filterEmployee, setFilterEmployee] = useState("");
   const [filterProject, setFilterProject] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterApproval, setFilterApproval] = useState("");
   const [search, setSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [page] = useState(1);
   const [importOpen, setImportOpen] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
+  const [rejectTarget, setRejectTarget] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: empData } = useQuery({
@@ -72,6 +102,7 @@ export default function TimesheetAdminPage() {
 
   // Client-side filter by status and search
   if (filterStatus) entries = entries.filter((e: any) => e.status === filterStatus);
+  if (filterApproval) entries = entries.filter((e: any) => e.approvalStatus === filterApproval);
   if (search.trim()) {
     const q = search.toLowerCase();
     entries = entries.filter((e: any) =>
@@ -101,11 +132,24 @@ export default function TimesheetAdminPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? "Failed to delete"),
   });
 
+  const approveMut = useMutation({
+    mutationFn: (id: string) => timesheetsApi.approve(id),
+    onSuccess: () => { toast.success("Entry approved"); qc.invalidateQueries({ queryKey: ["timesheets-admin"] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? "Failed to approve"),
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => timesheetsApi.reject(id, reason),
+    onSuccess: () => { toast.success("Entry rejected"); qc.invalidateQueries({ queryKey: ["timesheets-admin"] }); setRejectTarget(null); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? "Failed to reject"),
+  });
+
   // Aggregate stats
   const totalPresent = entries.filter((e: any) => e.status === "PRESENT" || e.status === "OVERTIME").length;
   const totalHours = entries.reduce((s: number, e: any) => s + Number(e.hoursWorked ?? 0), 0);
   const uniqueEmployees = new Set(entries.map((e: any) => e.employeeId)).size;
   const totalWage = entries.reduce((s: number, e: any) => s + Number(e.dailyWage ?? 0) + Number(e.overtimePay ?? 0), 0);
+  const pendingApprovalCount = entries.filter((e: any) => e.approvalStatus === "PENDING").length;
 
   function exportCsv() {
     const header = ["Date", "Employee", "Employee Code", "Project", "Status", "Hours", "OT Hrs", "Daily Wage", "OT Pay", "Notes"];
@@ -230,6 +274,16 @@ export default function TimesheetAdminPage() {
                   </Select>
                 </FormControl>
               </Grid>
+              <Grid item xs={12} sm={6} md={2}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Approval</InputLabel>
+                  <Select value={filterApproval} label="Approval" onChange={e => setFilterApproval(e.target.value)}>
+                    {APPROVAL_STATUS_OPTIONS.map(s => (
+                      <MenuItem key={s} value={s}>{s || "All Approvals"}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
               <Grid item xs={12} sm={6} md={1.5}>
                 <TextField fullWidth size="small" placeholder="Search…" value={search}
                   onChange={e => setSearch(e.target.value)}
@@ -247,6 +301,7 @@ export default function TimesheetAdminPage() {
           { label: "Unique Employees", value: uniqueEmployees, icon: <People sx={{ fontSize: 20, color: "#7c3aed" }} /> },
           { label: "Total Hours", value: `${totalHours.toFixed(1)} h`, icon: <AccessTime sx={{ fontSize: 20, color: "#059669" }} /> },
           { label: "Total Wage Cost", value: `$${totalWage.toLocaleString("en-SG", { minimumFractionDigits: 2 })}`, icon: <AccessTime sx={{ fontSize: 20, color: "#f59e0b" }} /> },
+          { label: "Pending Approval", value: pendingApprovalCount, icon: <CheckCircle sx={{ fontSize: 20, color: pendingApprovalCount > 0 ? "#d97706" : "#94a3b8" }} /> },
         ].map(stat => (
           <Grid key={stat.label} item xs={6} sm={3}>
             <Card elevation={0} sx={{ border: "1px solid #e2e8f0", borderRadius: "12px" }}>
@@ -286,7 +341,7 @@ export default function TimesheetAdminPage() {
           <Table size="small">
             <TableHead>
               <TableRow sx={{ backgroundColor: "#f8fafc" }}>
-                {["Date", "Employee", "Project", "Status", "Hours", "OT Hrs", "Daily Wage", "OT Pay", "Notes", ""].map(h => (
+                {["Date", "Employee", "Project", "Attendance", "Approval", "Hours", "OT Hrs", "Daily Wage", "OT Pay", "Notes", ""].map(h => (
                   <TableCell key={h} sx={{ fontWeight: 700, color: "#475569", fontSize: "0.75rem", py: 1.25 }}>{h}</TableCell>
                 ))}
               </TableRow>
@@ -312,6 +367,11 @@ export default function TimesheetAdminPage() {
                   <TableCell>
                     <Chip label={statusLabel(e.status)} size="small" color={statusColor(e.status)} />
                   </TableCell>
+                  <TableCell>
+                    <Tooltip title={e.rejectionReason ? `Rejected: ${e.rejectionReason}` : ""}>
+                      <Chip label={e.approvalStatus ?? "PENDING"} size="small" color={approvalColor(e.approvalStatus ?? "PENDING")} />
+                    </Tooltip>
+                  </TableCell>
                   <TableCell>{e.hoursWorked ?? "—"}</TableCell>
                   <TableCell>{e.overtimeHours ?? "—"}</TableCell>
                   <TableCell>${Number(e.dailyWage ?? 0).toFixed(2)}</TableCell>
@@ -320,12 +380,30 @@ export default function TimesheetAdminPage() {
                     {e.notes || "—"}
                   </TableCell>
                   <TableCell>
-                    <Tooltip title="Delete entry">
-                      <IconButton size="small" color="error"
-                        onClick={() => { if (window.confirm("Delete this timesheet entry?")) deleteMut.mutate(e.id); }}>
-                        <Delete sx={{ fontSize: 15 }} />
-                      </IconButton>
-                    </Tooltip>
+                    <Box sx={{ display: "flex", gap: 0.5 }}>
+                      {e.approvalStatus === "PENDING" && (
+                        <>
+                          <Tooltip title="Approve">
+                            <IconButton size="small" color="success" disabled={approveMut.isPending}
+                              onClick={() => approveMut.mutate(e.id)}>
+                              <CheckCircle sx={{ fontSize: 15 }} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Reject">
+                            <IconButton size="small" color="error" disabled={rejectMut.isPending}
+                              onClick={() => setRejectTarget(e.id)}>
+                              <Cancel sx={{ fontSize: 15 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </>
+                      )}
+                      <Tooltip title="Delete entry">
+                        <IconButton size="small" color="error"
+                          onClick={() => { if (window.confirm("Delete this timesheet entry?")) deleteMut.mutate(e.id); }}>
+                          <Delete sx={{ fontSize: 15 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}
@@ -387,6 +465,12 @@ export default function TimesheetAdminPage() {
           <Button onClick={() => setImportOpen(false)} sx={{ textTransform: "none", fontWeight: 600 }}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      <RejectTimesheetDialog
+        open={!!rejectTarget}
+        onClose={() => setRejectTarget(null)}
+        onConfirm={(reason) => rejectTarget && rejectMut.mutate({ id: rejectTarget, reason })}
+      />
     </Box>
   );
 }

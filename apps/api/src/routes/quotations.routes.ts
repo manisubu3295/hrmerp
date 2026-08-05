@@ -1,15 +1,32 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import prisma from '../lib/prisma';
+import prisma, { prismaUnscoped } from '../lib/prisma';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 import { AppError } from '../middleware/error.middleware';
-import { requireRoles } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/auth.middleware';
 import { generateQuotationPdf } from '../lib/pdf';
 import { sendEmail } from '../lib/email';
-import { UserRole, QuotationStatus } from '@sankoerp/shared';
+import { QuotationStatus } from '@sankoerp/shared';
 import { Prisma } from '@prisma/client';
+import { nextSequentialCode, withCodeRetry } from '../lib/codes';
 
 const router = Router();
+
+async function generateProjectCode(): Promise<string> {
+  const prefix = `PRJ-${new Date().getFullYear()}-`;
+  return nextSequentialCode({
+    prefix,
+    padLength: 4,
+    findLatestCode: async (p) => {
+      const row = await prisma.project.findFirst({
+        where: { projectCode: { startsWith: p } },
+        orderBy: { projectCode: 'desc' },
+        select: { projectCode: true },
+      });
+      return row?.projectCode ?? null;
+    },
+  });
+}
 
 async function findQuotationOrFail(id: string) {
   const q = await prisma.quotation.findUnique({
@@ -55,7 +72,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // POST /quotations
-router.post('/', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', requirePermission('quotation:create'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const dto = req.body;
     const count = await prisma.quotation.count();
@@ -63,6 +80,7 @@ router.post('/', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MAN
     const quotationCode = `QUO-${year}-${String(count + 1).padStart(4, '0')}`;
 
     const lineItems = (dto.lineItems as Array<{ description: string; workerType?: string; quantity: number; unit?: string; unitRate: number }>).map((item, idx) => ({
+      organizationId: req.organizationId as string,
       description: item.description,
       workerType: item.workerType,
       quantity: item.quantity,
@@ -81,6 +99,7 @@ router.post('/', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MAN
 
     const quotation = await prisma.quotation.create({
       data: {
+        organizationId: req.organizationId as string,
         quotationCode,
         clientId: dto.clientId,
         title: dto.title,
@@ -137,7 +156,7 @@ router.get('/:id/pdf', async (req: Request, res: Response, next: NextFunction) =
 });
 
 // PATCH /quotations/:id
-router.patch('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id', requirePermission('quotation:update'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params['id']!;
     const q = await findQuotationOrFail(id);
@@ -147,6 +166,7 @@ router.patch('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole
     if (dto.lineItems) {
       await prisma.quotationLineItem.deleteMany({ where: { quotationId: id } });
       const lineItems = (dto.lineItems as Array<{ description: string; workerType?: string; quantity: number; unit?: string; unitRate: number }>).map((item, idx) => ({
+        organizationId: req.organizationId as string,
         description: item.description,
         workerType: item.workerType,
         quantity: item.quantity,
@@ -178,7 +198,7 @@ router.patch('/:id', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole
 });
 
 // PATCH /quotations/:id/status
-router.patch('/:id/status', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id/status', requirePermission('quotation:update_status'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params['id']!;
     const { status, reason } = req.body as { status: QuotationStatus; reason?: string };
@@ -224,23 +244,23 @@ router.patch('/:id/status', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, U
 });
 
 // POST /quotations/:id/convert-to-project
-router.post('/:id/convert-to-project', requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/convert-to-project', requirePermission('quotation:convert'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params['id']!;
     const q = await findQuotationOrFail(id);
     if (q.status !== 'APPROVED') throw new AppError(400, 'Only approved quotations can be converted to projects');
     if (q.projectId) throw new AppError(400, 'Quotation already converted to a project');
 
-    const count = await prisma.project.count();
-    const year = new Date().getFullYear();
-    const projectCode = `PRJ-${year}-${String(count + 1).padStart(4, '0')}`;
-
-    const project = await prisma.project.create({
-      data: {
-        projectCode, name: q.title, description: q.description ?? undefined,
-        clientId: q.clientId, startDate: new Date(), quotedBudget: q.totalAmount, status: 'ACTIVE',
-      },
-    });
+    const project = await withCodeRetry(async () => {
+      const projectCode = await generateProjectCode();
+      return prisma.project.create({
+        data: {
+          organizationId: req.organizationId as string,
+          projectCode, name: q.title, description: q.description ?? undefined,
+          clientId: q.clientId, startDate: new Date(), quotedBudget: q.totalAmount, status: 'ACTIVE',
+        },
+      });
+    }, 'projectCode');
 
     await prisma.quotation.update({ where: { id }, data: { projectId: project.id } });
     res.json({ success: true, data: { project, quotation: q } });
@@ -252,7 +272,9 @@ router.post('/:id/convert-to-project', requireRoles(UserRole.ADMIN, UserRole.SUP
 router.get('/portal/:token', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { token } = req.params;
-    const q = await (prisma.quotation as any).findUnique({
+    // PUBLIC route — no tenant context, so this deliberately uses prismaUnscoped
+    // (portalToken is globally unique, so a cross-tenant lookup by token alone is safe).
+    const q = await (prismaUnscoped.quotation as any).findUnique({
       where: { portalToken: token },
       include: {
         client: { select: { id: true, name: true, contactEmail: true } },
@@ -263,7 +285,7 @@ router.get('/portal/:token', async (req: Request, res: Response, next: NextFunct
 
     // Auto-mark as VIEWED if it was SENT
     if (q.status === 'SENT') {
-      await prisma.quotation.update({ where: { id: q.id }, data: { status: 'VIEWED', viewedAt: new Date() } });
+      await prismaUnscoped.quotation.update({ where: { id: q.id }, data: { status: 'VIEWED', viewedAt: new Date() } });
     }
 
     res.json({ success: true, data: q });
@@ -274,13 +296,14 @@ router.get('/portal/:token', async (req: Request, res: Response, next: NextFunct
 router.post('/portal/:token/approve', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { token } = req.params;
-    const q = await (prisma.quotation as any).findUnique({ where: { portalToken: token } }) as Awaited<ReturnType<typeof prisma.quotation.findUnique>> | null;
+    // PUBLIC route — no tenant context, deliberately uses prismaUnscoped (see GET /portal/:token above).
+    const q = await (prismaUnscoped.quotation as any).findUnique({ where: { portalToken: token } }) as Awaited<ReturnType<typeof prisma.quotation.findUnique>> | null;
     if (!q) throw new AppError(404, 'Quotation not found or link has expired');
     if (q.status === 'APPROVED') throw new AppError(400, 'Quotation already approved');
     if (q.status === 'REJECTED') throw new AppError(400, 'Quotation already rejected');
     if (q.validUntil < new Date()) throw new AppError(400, 'Quotation has expired');
 
-    await prisma.quotation.update({
+    await prismaUnscoped.quotation.update({
       where: { id: q.id },
       data: { status: 'APPROVED', approvedAt: new Date() },
     });
@@ -293,12 +316,13 @@ router.post('/portal/:token/reject', async (req: Request, res: Response, next: N
   try {
     const { token } = req.params;
     const { reason } = req.body as { reason?: string };
-    const q = await (prisma.quotation as any).findUnique({ where: { portalToken: token } }) as Awaited<ReturnType<typeof prisma.quotation.findUnique>> | null;
+    // PUBLIC route — no tenant context, deliberately uses prismaUnscoped (see GET /portal/:token above).
+    const q = await (prismaUnscoped.quotation as any).findUnique({ where: { portalToken: token } }) as Awaited<ReturnType<typeof prisma.quotation.findUnique>> | null;
     if (!q) throw new AppError(404, 'Quotation not found or link has expired');
     if (q.status === 'APPROVED') throw new AppError(400, 'Quotation already approved');
     if (q.status === 'REJECTED') throw new AppError(400, 'Quotation already rejected');
 
-    await prisma.quotation.update({
+    await prismaUnscoped.quotation.update({
       where: { id: q.id },
       data: { status: 'REJECTED', rejectedAt: new Date(), rejectionReason: reason },
     });

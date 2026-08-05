@@ -82,8 +82,8 @@ export default function EmployeesPage() {
   const employees = Array.isArray(data?.data?.data?.data) ? data.data.data.data : [];
   const meta = data?.data?.data?.meta;
   const total = isLoading ? "—" : (meta?.total ?? employees.length);
-  const activeCount = employees.filter((e: any) => e.status === "ACTIVE").length;
-  const onLeaveCount = employees.filter((e: any) => e.status === "ON_LEAVE").length;
+  const activeCount = employees.filter((e: any) => e.isActive === true).length;
+  const onLeaveCount = 0; // on-leave count requires a separate query
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -150,10 +150,10 @@ export default function EmployeesPage() {
                   onClick={() => navigate(`/employees/${e.id}`)}>
                   <TableCell>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                      <Avatar sx={{ width: 36, height: 36, fontSize: "0.75rem", fontWeight: 700, backgroundColor: avatarColor(e.fullName ?? ""), borderRadius: "9px" }} {...stringAvatar(e.fullName ?? "?")} />
+                      <Avatar sx={{ width: 36, height: 36, fontSize: "0.75rem", fontWeight: 700, backgroundColor: avatarColor(`${e.firstName ?? ''} ${e.lastName ?? ''}`), borderRadius: "9px" }} {...stringAvatar(`${e.firstName ?? ''} ${e.lastName ?? ''}`)} />
                       <Box>
-                        <Typography sx={{ fontWeight: 600, fontSize: "0.875rem", color: "#0f172a" }}>{e.fullName}</Typography>
-                        <Typography sx={{ fontSize: "0.75rem", color: "#94a3b8" }}>{e.employeeId}</Typography>
+                        <Typography sx={{ fontWeight: 600, fontSize: "0.875rem", color: "#0f172a" }}>{e.firstName} {e.lastName}</Typography>
+                        <Typography sx={{ fontSize: "0.75rem", color: "#94a3b8" }}>{e.employeeCode}</Typography>
                       </Box>
                     </Box>
                   </TableCell>
@@ -163,14 +163,14 @@ export default function EmployeesPage() {
                   </TableCell>
                   <TableCell><Typography sx={{ fontSize: "0.875rem", color: "#374151" }}>{e.nationality ?? "—"}</Typography></TableCell>
                   <TableCell>
-                    <Typography sx={{ fontSize: "0.875rem", color: "#374151" }}>{e.workPassType ?? "—"}</Typography>
-                    {e.workPassExpiry && (
-                      <Typography sx={{ fontSize: "0.75rem", color: new Date(e.workPassExpiry) < new Date() ? "#b91c1c" : "#94a3b8" }}>
-                        Exp: {formatDate(e.workPassExpiry)}
+                    <Typography sx={{ fontSize: "0.875rem", color: "#374151" }}>{e.workPass?.[0]?.type ?? "—"}</Typography>
+                    {e.workPass?.[0]?.expiryDate && (
+                      <Typography sx={{ fontSize: "0.75rem", color: new Date(e.workPass[0].expiryDate) < new Date() ? "#b91c1c" : "#94a3b8" }}>
+                        Exp: {formatDate(e.workPass[0].expiryDate)}
                       </Typography>
                     )}
                   </TableCell>
-                  <TableCell><Chip label={e.status} color={getStatusChipColor(e.status)} size="small" /></TableCell>
+                  <TableCell><Chip label={e.isActive ? 'Active' : 'Inactive'} color={e.isActive ? 'success' : 'default'} size="small" /></TableCell>
                   <TableCell><Typography sx={{ fontSize: "0.8125rem", color: "#374151" }}>{formatDate(e.joinDate)}</Typography></TableCell>
                   <TableCell onClick={e2 => e2.stopPropagation()}><RowMenu employeeId={e.id} /></TableCell>
                 </TableRow>

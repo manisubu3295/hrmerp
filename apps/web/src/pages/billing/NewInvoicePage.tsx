@@ -50,7 +50,17 @@ export default function NewInvoicePage() {
   const total = items.reduce((sum, it) => sum + (it.quantity || 0) * (it.unitPrice || 0), 0);
 
   const mutation = useMutation({
-    mutationFn: (data: FormData) => billingApi.createInvoice(data),
+    mutationFn: (data: FormData) => billingApi.createInvoice({
+      clientId: data.clientId,
+      projectId: data.projectId || null,
+      issueDate: data.issueDate,
+      dueDate: data.dueDate,
+      lineItems: data.items.map(item => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitRate: item.unitPrice,
+      })),
+    }),
     onSuccess: () => { toast.success("Invoice created"); qc.invalidateQueries({ queryKey: ["invoices"] }); navigate("/billing"); },
     onError: (err: any) => toast.error(err?.response?.data?.message ?? "Failed to create invoice"),
   });
