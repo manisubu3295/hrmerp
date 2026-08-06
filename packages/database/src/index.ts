@@ -1,3 +1,3 @@
 export { PrismaClient } from '@prisma/client';
 export * from '@prisma/client';
-export * from '../presets';
+export * from '../presets/index';
