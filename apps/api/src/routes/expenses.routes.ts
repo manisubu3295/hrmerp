@@ -9,6 +9,13 @@ import { emitEvent } from '../lib/events';
 
 const router = Router();
 
+/** Resolve employeeId for the calling user (throws 403 if not found). */
+async function resolveEmployeeId(userId: string): Promise<string> {
+  const employee = await prisma.employee.findFirst({ where: { userId }, select: { id: true } });
+  if (!employee) throw new AppError(403, 'No employee profile linked to this account');
+  return employee.id;
+}
+
 async function checkBudget(projectId: string) {
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   if (!project || Number(project.quotedBudget) === 0) return;
@@ -63,7 +70,36 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 // POST /expenses
 router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const dto = req.body;
+    const dto = req.body as {
+      projectId?: string;
+      category?: string;
+      amount?: number | string;
+      description?: string;
+      date?: string;
+      expenseDate?: string;
+      receiptUrl?: string;
+    };
+
+    if (!dto.projectId) throw new AppError(400, 'projectId is required');
+    if (!dto.category || !Object.values(ExpenseCategory).includes(dto.category as ExpenseCategory)) {
+      throw new AppError(400, `category must be one of: ${Object.values(ExpenseCategory).join(', ')}`);
+    }
+    if (!dto.description?.trim()) throw new AppError(400, 'description is required');
+
+    const amount = Number(dto.amount);
+    if (!Number.isFinite(amount) || amount <= 0) throw new AppError(400, 'amount must be a number greater than 0');
+
+    // Frontend form field is `expenseDate`; accept either key.
+    const date = new Date(dto.date ?? dto.expenseDate ?? '');
+    if (Number.isNaN(date.getTime())) throw new AppError(400, 'A valid date is required');
+
+    const project = await prisma.project.findUnique({ where: { id: dto.projectId } });
+    if (!project) throw new AppError(404, `Project ${dto.projectId} not found`);
+
+    // submittedById is derived from the authenticated caller, never trusted
+    // from the request body, so users can't log expenses under someone else's name.
+    const submittedById = await resolveEmployeeId(req.user!.sub);
+
     const count = await prisma.expense.count();
     const expenseCode = `EXP-${String(count + 1).padStart(5, '0')}`;
 
@@ -72,11 +108,11 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
         organizationId: req.organizationId as string,
         expenseCode,
         projectId: dto.projectId,
-        submittedById: dto.submittedById,
-        category: dto.category,
-        amount: dto.amount,
+        submittedById,
+        category: dto.category as ExpenseCategory,
+        amount,
         description: dto.description,
-        date: new Date(dto.date),
+        date,
         receiptUrl: dto.receiptUrl,
         status: 'PENDING',
       },

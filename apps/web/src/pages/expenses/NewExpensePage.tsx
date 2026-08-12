@@ -11,21 +11,23 @@ import { ArrowBack, AttachMoney } from "@mui/icons-material";
 import { toast } from "sonner";
 import { expensesApi, projectsApi } from "@/lib/api";
 
-const CATEGORIES = ["MATERIALS", "LABOUR", "EQUIPMENT", "TRANSPORT", "ACCOMMODATION", "UTILITIES", "SUBCONTRACT", "OTHER"];
+// Must match the ExpenseCategory enum in packages/database/prisma/schema.prisma
+// (and packages/shared/src/enums.ts) — the API rejects any other value.
+const CATEGORIES = ["TRANSPORT", "MEALS", "MATERIALS", "SUB_CONTRACTOR", "PERMITS", "ACCOMMODATION", "MISCELLANEOUS"];
 
 const schema = z.object({
   description: z.string().min(1, "Description is required"),
   amount: z.coerce.number().min(0.01, "Amount must be > 0"),
   category: z.string().min(1, "Category is required"),
-  projectId: z.string().optional(),
+  projectId: z.string().min(1, "Project is required"),
   expenseDate: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
 
 const CATEGORY_ICONS: Record<string, string> = {
-  TRANSPORT: "🚗", ACCOMMODATION: "🏨", MATERIALS: "🔧", LABOUR: "👷",
-  UTILITIES: "💡", SUBCONTRACT: "🏢", EQUIPMENT: "⚙️", OTHER: "📌",
+  TRANSPORT: "🚗", ACCOMMODATION: "🏨", MATERIALS: "🔧", MEALS: "🍽️",
+  SUB_CONTRACTOR: "🏢", PERMITS: "📋", MISCELLANEOUS: "📌",
 };
 
 function SectionLabel({ children }: { children: string }) {
@@ -45,7 +47,9 @@ export default function NewExpensePage() {
   });
 
   const mutation = useMutation({
-    mutationFn: (data: FormData) => expensesApi.create(data),
+    // API's Expense model stores this as `date`; the form field is named
+    // `expenseDate` to distinguish it from the JS Date type in this component.
+    mutationFn: (data: FormData) => expensesApi.create({ ...data, date: data.expenseDate }),
     onSuccess: () => { toast.success("Expense logged"); qc.invalidateQueries({ queryKey: ["expenses"] }); navigate("/expenses"); },
     onError: (err: any) => toast.error(err?.response?.data?.message ?? "Failed to log expense"),
   });
@@ -93,14 +97,14 @@ export default function NewExpensePage() {
                     </FormControl>
                   </Grid>
                   <Grid item xs={12} md={6}>
-                    <FormControl fullWidth>
-                      <InputLabel>Project (optional)</InputLabel>
+                    <FormControl fullWidth error={!!errors.projectId}>
+                      <InputLabel>Project</InputLabel>
                       <Controller name="projectId" control={control} defaultValue="" render={({ field }) => (
-                        <Select {...field} label="Project (optional)">
-                          <MenuItem value="">None</MenuItem>
+                        <Select {...field} label="Project">
                           {projects.map((p: any) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
                         </Select>
                       )} />
+                      {errors.projectId && <FormHelperText>{errors.projectId.message}</FormHelperText>}
                     </FormControl>
                   </Grid>
                   <Grid item xs={12}>
