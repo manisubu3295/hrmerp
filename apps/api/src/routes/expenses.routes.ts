@@ -3,7 +3,7 @@ import prisma from '../lib/prisma';
 import { parsePagination, buildPaginationMeta } from '../lib/pagination';
 import { AppError } from '../middleware/error.middleware';
 import { requirePermission } from '../middleware/auth.middleware';
-import { ExpenseStatus, ExpenseCategory } from '@sankoerp/shared';
+import { ExpenseStatus, ExpenseCategory, UserRole } from '@sankoerp/shared';
 import { Prisma } from '@prisma/client';
 import { emitEvent } from '../lib/events';
 
@@ -14,6 +14,13 @@ async function resolveEmployeeId(userId: string): Promise<string> {
   const employee = await prisma.employee.findFirst({ where: { userId }, select: { id: true } });
   if (!employee) throw new AppError(403, 'No employee profile linked to this account');
   return employee.id;
+}
+
+// Same admin bypass used by leave/employee-case routes: admins/managers act
+// on behalf of any employee (e.g. logging an expense for a field worker),
+// everyone else can only submit for themselves.
+function isAdminRole(role: UserRole) {
+  return role === UserRole.SUPER_ADMIN || role === UserRole.ADMIN || role === UserRole.MANAGER;
 }
 
 async function checkBudget(projectId: string) {
@@ -78,6 +85,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       date?: string;
       expenseDate?: string;
       receiptUrl?: string;
+      submittedById?: string;
     };
 
     if (!dto.projectId) throw new AppError(400, 'projectId is required');
@@ -96,9 +104,18 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
     const project = await prisma.project.findUnique({ where: { id: dto.projectId } });
     if (!project) throw new AppError(404, `Project ${dto.projectId} not found`);
 
-    // submittedById is derived from the authenticated caller, never trusted
-    // from the request body, so users can't log expenses under someone else's name.
-    const submittedById = await resolveEmployeeId(req.user!.sub);
+    // Regular users can only submit for themselves. Admins/managers may log
+    // an expense on behalf of any employee by passing submittedById; if they
+    // don't, it falls back to their own linked employee profile (if any).
+    const callerRole = req.user!.role as UserRole;
+    let submittedById: string;
+    if (isAdminRole(callerRole) && dto.submittedById) {
+      const submitter = await prisma.employee.findUnique({ where: { id: dto.submittedById }, select: { id: true } });
+      if (!submitter) throw new AppError(404, `Employee ${dto.submittedById} not found`);
+      submittedById = submitter.id;
+    } else {
+      submittedById = await resolveEmployeeId(req.user!.sub);
+    }
 
     const count = await prisma.expense.count();
     const expenseCode = `EXP-${String(count + 1).padStart(5, '0')}`;

@@ -163,6 +163,44 @@ async function main() {
     },
   });
 
+  // Link the admin/manager logins to their own Employee profile so
+  // self-service features that resolve "the calling user's employee record"
+  // (expenses, timesheets, leave, employee cases, ...) work out of the box
+  // when testing as these seeded accounts, not just for foreign-worker staff.
+  await prisma.employee.upsert({
+    where: { organizationId_employeeCode: { organizationId: org.id, employeeCode: 'EMP-0000' } },
+    update: { userId: admin.id },
+    create: {
+      organizationId: org.id,
+      employeeCode: 'EMP-0000',
+      userId: admin.id,
+      firstName: 'System',
+      lastName: 'Admin',
+      jobTitle: 'Administrator',
+      employmentType: 'FULL_TIME',
+      dailyRate: 0,
+      joinDate: new Date('2023-01-01'),
+      isActive: true,
+    },
+  });
+
+  await prisma.employee.upsert({
+    where: { organizationId_employeeCode: { organizationId: org.id, employeeCode: 'EMP-0003' } },
+    update: { userId: mgr.id },
+    create: {
+      organizationId: org.id,
+      employeeCode: 'EMP-0003',
+      userId: mgr.id,
+      firstName: 'Site',
+      lastName: 'Manager',
+      jobTitle: 'Project Manager',
+      employmentType: 'FULL_TIME',
+      dailyRate: 0,
+      joinDate: new Date('2023-01-01'),
+      isActive: true,
+    },
+  });
+
   // Sample client
   const client = await prisma.client.upsert({
     where: { organizationId_code: { organizationId: org.id, code: 'CLI-0001' } },
